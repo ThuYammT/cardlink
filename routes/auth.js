@@ -41,7 +41,7 @@ router.post('/login', async (req, res) => {
 });
 
 // ✅ GET /me - Return current logged-in user
-router.get('/me', async (req, res) => {
+router.patch('/me', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ message: 'Missing token' });
 
@@ -49,13 +49,22 @@ router.get('/me', async (req, res) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
+    const user = await User.findById(decoded.userId);
+
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    res.json(user);
+    const { name, avatar } = req.body;
+
+    if (name) user.name = name;
+    if (avatar) user.avatar = avatar;
+
+    await user.save();
+
+    res.json({ message: 'Profile updated' });
   } catch (err) {
     res.status(401).json({ message: 'Invalid or expired token' });
   }
 });
+
 
 module.exports = router;
