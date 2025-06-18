@@ -62,8 +62,9 @@ router.patch('/me', async (req, res) => {
 
     res.json({ message: 'Profile updated' });
   } catch (err) {
-    res.status(401).json({ message: 'Invalid or expired token' });
+  res.status(401).json({ message: 'Invalid or expired token' });
   }
+
 });
 
 
