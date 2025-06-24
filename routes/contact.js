@@ -59,3 +59,22 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+
+// Update a contact
+router.put('/:id', authMiddleware, async (req, res) => {
+  try {
+    const contact = await Contact.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      req.body,
+      { new: true }
+    );
+
+    if (!contact) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+
+    res.json(contact);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update contact' });
+  }
+});
