@@ -18,10 +18,15 @@ router.post("/", upload.single("image"), async (req, res) => {
     }
 
     console.log("✅ OCR request received:", req.file.originalname);
+    console.log("📦 File MIME type:", req.file.mimetype);
+    console.log("📦 File size:", req.file.size, "bytes");
 
     // 🔧 Save image buffer to a temp file
     const tempFilePath = path.join("/tmp", `${Date.now()}-${req.file.originalname}`);
     fs.writeFileSync(tempFilePath, req.file.buffer);
+
+    const stats = fs.statSync(tempFilePath);
+    console.log("📏 Temp file size on disk:", stats.size, "bytes");
 
     // ✅ Use the file path with Google Vision
     const [result] = await client.textDetection(tempFilePath);
@@ -30,10 +35,13 @@ router.post("/", upload.single("image"), async (req, res) => {
     fs.unlinkSync(tempFilePath);
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
+      console.log("🕵️‍♂️ No text detected by Vision API.");
       return res.status(400).json({ message: "No text detected" });
     }
 
     const rawText = result.fullTextAnnotation.text;
+    console.log("📄 OCR raw text preview:", rawText.slice(0, 100));
+
     const emailMatch = rawText.match(/\S+@\S+\.\S+/);
     const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
 
@@ -53,7 +61,10 @@ router.post("/", upload.single("image"), async (req, res) => {
     res.json(contact);
   } catch (err) {
     console.error("❌ OCR error:", err);
-    res.status(500).json({ message: "OCR processing failed" });
+    res.status(500).json({
+      message: "OCR processing failed",
+      detail: err.message,
+    });
   }
 });
 
