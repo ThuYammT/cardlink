@@ -4,7 +4,8 @@ const vision = require("@google-cloud/vision");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const client = new vision.ImageAnnotatorClient();
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const client = new vision.ImageAnnotatorClient({ credentials });
 
 router.post("/", upload.single("image"), async (req, res) => {
   try {
