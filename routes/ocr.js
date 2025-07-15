@@ -10,41 +10,24 @@ const upload = multer({ storage: multer.memoryStorage() });
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 const client = new vision.ImageAnnotatorClient({ credentials });
 
-router.post("/", upload.single("image"), async (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    if (!req.file) {
-      console.log("❌ No file received.");
-      return res.status(400).json({ message: "No image uploaded" });
+    const imageUrl = req.body.imageUrl;
+    if (!imageUrl) {
+      return res.status(400).json({ message: "No image URL provided" });
     }
 
-    console.log("✅ OCR request received:", req.file.originalname);
-    console.log("📦 File MIME type:", req.file.mimetype);
-    console.log("📦 File size:", req.file.size, "bytes");
-
-    // 🔧 Save image buffer to a temp file (optional for debug)
-    const tempFilePath = path.join("/tmp", `${Date.now()}-${req.file.originalname}`);
-    fs.writeFileSync(tempFilePath, req.file.buffer);
-    const stats = fs.statSync(tempFilePath);
-    console.log("📏 Temp file size on disk:", stats.size, "bytes");
-
-    // ✅ Convert buffer to base64 instead of using file path
-    const base64 = fs.readFileSync(tempFilePath).toString("base64");
+    console.log("🌐 OCR via URL:", imageUrl);
 
     const [result] = await client.textDetection({
-      image: { content: base64 },
+      image: { source: { imageUri: imageUrl } },
     });
 
-    // 🧼 Clean up the temp file
-    fs.unlinkSync(tempFilePath);
-
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
-      console.log("🕵️‍♂️ No text detected by Vision API.");
       return res.status(400).json({ message: "No text detected" });
     }
 
     const rawText = result.fullTextAnnotation.text;
-    console.log("📄 OCR raw text preview:", rawText.slice(0, 100));
-
     const emailMatch = rawText.match(/\S+@\S+\.\S+/);
     const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
 
@@ -64,11 +47,9 @@ router.post("/", upload.single("image"), async (req, res) => {
     res.json(contact);
   } catch (err) {
     console.error("❌ OCR error:", err);
-    res.status(500).json({
-      message: "OCR processing failed",
-      detail: err.message,
-    });
+    res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
+
 
 module.exports = router;
