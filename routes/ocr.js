@@ -1,33 +1,29 @@
 const express = require("express");
-const multer = require("multer");
 const vision = require("@google-cloud/vision");
-const fs = require("fs");
-const path = require("path");
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
-
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 const client = new vision.ImageAnnotatorClient({ credentials });
 
 router.post("/", async (req, res) => {
   try {
-    const imageUrl = req.body.imageUrl;
-    if (!imageUrl) {
-      return res.status(400).json({ message: "No image URL provided" });
+    const base64 = req.body.imageBase64;
+    if (!base64) {
+      return res.status(400).json({ message: "No image data received" });
     }
 
-    console.log("🌐 OCR via URL:", imageUrl);
+    const buffer = Buffer.from(base64, "base64");
+    console.log("📦 OCR buffer received, size:", buffer.length);
 
-    const [result] = await client.textDetection({
-      image: { source: { imageUri: imageUrl } },
-    });
+    const [result] = await client.textDetection({ image: { content: buffer } });
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
       return res.status(400).json({ message: "No text detected" });
     }
 
     const rawText = result.fullTextAnnotation.text;
+    console.log("📄 OCR text preview:", rawText.slice(0, 150));
+
     const emailMatch = rawText.match(/\S+@\S+\.\S+/);
     const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
 
@@ -50,6 +46,5 @@ router.post("/", async (req, res) => {
     res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
-
 
 module.exports = router;
