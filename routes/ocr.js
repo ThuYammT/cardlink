@@ -1,9 +1,12 @@
 const express = require("express");
 const multer = require("multer");
 const vision = require("@google-cloud/vision");
+const fs = require("fs");
+const path = require("path");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 const client = new vision.ImageAnnotatorClient({ credentials });
 
@@ -16,9 +19,15 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     console.log("✅ OCR request received:", req.file.originalname);
 
-    const buffer = req.file.buffer;
+    // 🔧 Save image buffer to a temp file
+    const tempFilePath = path.join("/tmp", `${Date.now()}-${req.file.originalname}`);
+    fs.writeFileSync(tempFilePath, req.file.buffer);
 
-    const [result] = await client.textDetection({ image: { content: buffer } });
+    // ✅ Use the file path with Google Vision
+    const [result] = await client.textDetection(tempFilePath);
+
+    // 🧼 Clean up the temp file
+    fs.unlinkSync(tempFilePath);
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
       return res.status(400).json({ message: "No text detected" });
