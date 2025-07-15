@@ -21,15 +21,18 @@ router.post("/", upload.single("image"), async (req, res) => {
     console.log("📦 File MIME type:", req.file.mimetype);
     console.log("📦 File size:", req.file.size, "bytes");
 
-    // 🔧 Save image buffer to a temp file
+    // 🔧 Save image buffer to a temp file (optional for debug)
     const tempFilePath = path.join("/tmp", `${Date.now()}-${req.file.originalname}`);
     fs.writeFileSync(tempFilePath, req.file.buffer);
-
     const stats = fs.statSync(tempFilePath);
     console.log("📏 Temp file size on disk:", stats.size, "bytes");
 
-    // ✅ Use the file path with Google Vision
-    const [result] = await client.textDetection(tempFilePath);
+    // ✅ Convert buffer to base64 instead of using file path
+    const base64 = fs.readFileSync(tempFilePath).toString("base64");
+
+    const [result] = await client.textDetection({
+      image: { content: base64 },
+    });
 
     // 🧼 Clean up the temp file
     fs.unlinkSync(tempFilePath);
