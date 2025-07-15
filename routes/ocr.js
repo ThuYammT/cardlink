@@ -14,7 +14,9 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "No image data received" });
     }
 
-    const buffer = Buffer.from(base64, "base64");
+    const cleaned = base64.replace(/^data:image\/\w+;base64,/, ""); // ✅ remove prefix
+    const buffer = Buffer.from(cleaned, "base64");
+
 
     console.log("✅ OCR base64 buffer created");
 
