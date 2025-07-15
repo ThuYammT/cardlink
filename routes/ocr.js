@@ -7,22 +7,28 @@ const client = new vision.ImageAnnotatorClient({ credentials });
 
 router.post("/", async (req, res) => {
   try {
-    const base64 = req.body.imageBase64;
-    if (!base64) {
-      return res.status(400).json({ message: "No image data received" });
+    const imageUrl = req.body.imageUrl;
+
+    if (!imageUrl) {
+      return res.status(400).json({ message: "No image URL provided" });
     }
 
-    const buffer = Buffer.from(base64, "base64");
-    console.log("📦 OCR buffer received, size:", buffer.length);
+    console.log("🌐 Vision API using URL:", imageUrl);
 
-    const [result] = await client.textDetection({ image: { content: buffer } });
+    const [result] = await client.textDetection({
+      image: {
+        source: {
+          imageUri: imageUrl, // ✅ CORRECT USAGE
+        },
+      },
+    });
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
       return res.status(400).json({ message: "No text detected" });
     }
 
     const rawText = result.fullTextAnnotation.text;
-    console.log("📄 OCR text preview:", rawText.slice(0, 150));
+    console.log("📄 OCR text:", rawText.slice(0, 150));
 
     const emailMatch = rawText.match(/\S+@\S+\.\S+/);
     const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
