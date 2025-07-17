@@ -1,5 +1,6 @@
 const express = require("express");
 const vision = require("@google-cloud/vision");
+const fetch = require("node-fetch"); // Make sure to install: npm install node-fetch
 
 const router = express.Router();
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
@@ -7,20 +8,29 @@ const client = new vision.ImageAnnotatorClient({ credentials });
 
 router.post("/", async (req, res) => {
   try {
-    const imageUrl = req.body.imageUrl;
+    const { imageUrl, imageBase64 } = req.body;
 
-    if (!imageUrl) {
-      return res.status(400).json({ message: "No image URL provided" });
+    if (!imageUrl && !imageBase64) {
+      return res.status(400).json({ message: "No image data provided" });
     }
 
-    console.log("🌐 Vision API using URL:", imageUrl);
+    let imageContent;
+    if (imageBase64) {
+      // Use base64 if provided
+      imageContent = { content: imageBase64 };
+    } else {
+      // Fallback to downloading the image
+      console.log("🌐 Downloading image from URL:", imageUrl);
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        return res.status(400).json({ message: "Failed to download image" });
+      }
+      const buffer = await response.buffer();
+      imageContent = { content: buffer.toString('base64') };
+    }
 
     const [result] = await client.textDetection({
-      image: {
-        source: {
-          imageUri: imageUrl, // ✅ CORRECT USAGE
-        },
-      },
+      image: imageContent,
     });
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
@@ -49,7 +59,11 @@ router.post("/", async (req, res) => {
     res.json(contact);
   } catch (err) {
     console.error("❌ OCR error:", err);
-    res.status(500).json({ message: "OCR processing failed", detail: err.message });
+    res.status(500).json({ 
+      message: "OCR processing failed", 
+      detail: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 
