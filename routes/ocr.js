@@ -1,5 +1,6 @@
 const express = require("express");
 const { ImageAnnotatorClient } = require("@google-cloud/vision");
+const sharp = require("sharp");
 
 const router = express.Router();
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
@@ -8,15 +9,19 @@ const client = new ImageAnnotatorClient({ credentials });
 router.post("/", async (req, res) => {
   try {
     const { imageBase64 } = req.body;
-
     if (!imageBase64) {
       return res.status(400).json({ message: "Missing base64 image" });
     }
 
-    const image = {
-  content: Buffer.from(imageBase64, 'base64'),
-};
+    // Decode base64 → buffer → sharp → JPEG buffer → re-encode base64
+    const decodedBuffer = Buffer.from(imageBase64, "base64");
+    const jpegBuffer = await sharp(decodedBuffer)
+      .jpeg({ quality: 80 })
+      .toBuffer();
 
+    const image = {
+      content: jpegBuffer.toString("base64"),
+    };
 
     const [result] = await client.textDetection({ image });
 
