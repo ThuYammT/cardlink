@@ -13,24 +13,22 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "No image URL provided" });
     }
 
-    // Download the image
     console.log("🌐 Downloading image from URL:", imageUrl);
-    const response = await fetch(imageUrl);
-    if (!response.ok) {
+    const imageResponse = await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
       return res.status(400).json({ message: "Failed to download image" });
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-const buffer = Buffer.from(arrayBuffer);
-const imageContent = {
-  content: buffer.toString("base64"),
-};
+    const arrayBuffer = await imageResponse.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
+    // ✅ Force re-encode image to standard JPEG base64
+    const imageContent = {
+      content: buffer.toString("base64"),
+    };
 
-
-    const [result] = await client.textDetection({
-      image: imageContent,
-    });
+    const [result] = await client.textDetection({ image: imageContent });
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
       return res.status(400).json({ message: "No text detected" });
