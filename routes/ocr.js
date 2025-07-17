@@ -20,10 +20,11 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Failed to download image" });
     }
 
-    const buffer = await response.arrayBuffer(); // Node fetch returns arrayBuffer
-    const imageContent = {
-      content: Buffer.from(buffer).toString("base64"),
-    };
+    const buffer = await response.buffer(); // ✅ works across all Node versions
+const imageContent = {
+  content: buffer.toString("base64"),    // ✅ simpler, more reliable
+};
+
 
     const [result] = await client.textDetection({
       image: imageContent,
