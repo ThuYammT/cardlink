@@ -14,8 +14,9 @@ router.post("/", async (req, res) => {
     }
 
     const image = {
-      content: imageBase64,
-    };
+  content: Buffer.from(imageBase64, 'base64'),
+};
+
 
     const [result] = await client.textDetection({ image });
 
