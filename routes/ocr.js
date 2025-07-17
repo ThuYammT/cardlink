@@ -7,28 +7,17 @@ const client = new ImageAnnotatorClient({ credentials });
 
 router.post("/", async (req, res) => {
   try {
-    const { imageUrl } = req.body;
+    const { imageBase64 } = req.body;
 
-    if (!imageUrl) {
-      return res.status(400).json({ message: "No image URL provided" });
+    if (!imageBase64) {
+      return res.status(400).json({ message: "Missing base64 image" });
     }
 
-    console.log("🌐 Downloading image from URL:", imageUrl);
-    const imageResponse = await fetch(imageUrl);
-
-    if (!imageResponse.ok) {
-      return res.status(400).json({ message: "Failed to download image" });
-    }
-
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // ✅ Force re-encode image to standard JPEG base64
-    const imageContent = {
-      content: buffer.toString("base64"),
+    const image = {
+      content: imageBase64,
     };
 
-    const [result] = await client.textDetection({ image: imageContent });
+    const [result] = await client.textDetection({ image });
 
     if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
       return res.status(400).json({ message: "No text detected" });
