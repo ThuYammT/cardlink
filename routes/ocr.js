@@ -1,11 +1,10 @@
 const express = require("express");
-const vision = require("@google-cloud/vision");
-const fetch = require("node-fetch"); // Make sure to install: npm install node-fetch
+const { ImageAnnotatorClient } = require("@google-cloud/vision");
+const fetch = require("node-fetch");
 
-const vision = require("@google-cloud/vision");
+const router = express.Router();
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-
-const client = new vision.ImageAnnotatorClient({ credentials });
+const client = new ImageAnnotatorClient({ credentials });
 
 
 
