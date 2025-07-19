@@ -1,43 +1,59 @@
 // utils/parseOCRText.js
 module.exports = function parseOCRText(rawText) {
-  const lines = rawText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = rawText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 1);
 
-  const emailMatch = rawText.match(/\S+@\S+\.\S+/);
-  const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
-  const websiteMatch = rawText.match(/https?:\/\/[^\s]+|www\.[^\s]+/i);
-  const nameRegex = /^[A-Z][a-zA-Z.'\-]+\s+[A-Z][a-zA-Z.'\-]+$/;
+  const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+  const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
+  const websiteRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/i;
+  const nameRegex = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+){0,2}$/; // e.g., John Doe
+  const positionKeywords = /(director|manager|ceo|cto|founder|consultant|engineer|developer|representative|officer|intern)/i;
+  const companyKeywords = /(co\.|company|limited|ltd|llc|corp|inc|incorporated|plc|co\,? ltd\.?|group|studio|chamber|organization|agency|services)/i;
 
+  let email = "";
+  let phones = [];
+  let website = "";
   let name = "";
   let position = "";
   let company = "";
 
-  for (let line of lines) {
-    if (!name && nameRegex.test(line)) {
-      name = line;
-      continue;
+  // === Step 1: Extract basic info
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!email && emailRegex.test(line)) {
+      email = line.match(emailRegex)?.[0] || "";
     }
 
-    if (!position && /(Director|Manager|Representative|Engineer|Consultant|Founder|CEO|CTO|Developer|Officer|Intern)/i.test(line)) {
+    if (phoneRegex.test(line)) {
+      phones.push(...(line.match(phoneRegex) || []));
+    }
+
+    if (!website && websiteRegex.test(line)) {
+      website = line.match(websiteRegex)?.[0] || "";
+    }
+
+    if (!position && positionKeywords.test(line)) {
       position = line;
-      continue;
+      // Try previous line as name
+      if (!name && i > 0 && nameRegex.test(lines[i - 1])) {
+        name = lines[i - 1];
+      }
     }
 
-    if (!company && /(Company|Co\.|Ltd|LLC|Corp|Incorporated|Inc)/i.test(line)) {
+    if (!company && companyKeywords.test(line)) {
       company = line;
     }
+
+    // Name fallback
+    if (!name && nameRegex.test(line)) {
+      name = line;
+    }
   }
 
-  if (!name && lines.length > 0) {
-    // Fallback to 1st line if it's not email or position
-    const fallback = lines.find(l => !l.includes("@") && !l.match(/\d+/));
-    if (fallback) name = fallback;
-  }
-
-  if (!company && emailMatch) {
-    const domain = emailMatch[0].split("@")[1].split(".")[0];
-    company = domain.charAt(0).toUpperCase() + domain.slice(1);
-  }
-
+  // === Step 2: Process name
   const nameParts = name.split(" ");
   const firstName = nameParts[0] || "";
   const lastName = nameParts.slice(1).join(" ") || "";
@@ -45,13 +61,13 @@ module.exports = function parseOCRText(rawText) {
   return {
     firstName,
     lastName,
-    nickname: "",
-    phone: phoneMatches?.[0] || "",
-    additionalPhones: phoneMatches?.slice(1) || [],
-    email: emailMatch?.[0] || "",
+    nickname: "", // not parsed unless clearly labeled
     position,
     company,
-    website: websiteMatch?.[0] || "",
+    phone: phones[0] || "",
+    additionalPhones: phones.slice(1),
+    email,
+    website,
     notes: rawText,
   };
 };
