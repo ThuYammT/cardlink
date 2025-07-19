@@ -1,10 +1,8 @@
 const express = require("express");
-const { ImageAnnotatorClient } = require("@google-cloud/vision");
+const Tesseract = require("tesseract.js");
 const sharp = require("sharp");
 
 const router = express.Router();
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-const client = new ImageAnnotatorClient({ credentials });
 
 router.post("/", async (req, res) => {
   try {
@@ -13,27 +11,16 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Missing base64 image" });
     }
 
-    // Decode base64 → buffer → sharp → JPEG buffer → re-encode base64
-    const decodedBuffer = Buffer.from(imageBase64, "base64");
-    const jpegBuffer = await sharp(decodedBuffer)
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    const buffer = Buffer.from(imageBase64, "base64");
+    const jpegBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
 
-    const image = {
-      content: jpegBuffer.toString("base64"),
-    };
+    const { data: { text } } = await Tesseract.recognize(jpegBuffer, "eng");
 
-    const [result] = await client.textDetection({ image });
+    console.log("🧠 OCR text:", text.slice(0, 150));
 
-    if (!result.fullTextAnnotation || !result.fullTextAnnotation.text) {
-      return res.status(400).json({ message: "No text detected" });
-    }
-
-    const rawText = result.fullTextAnnotation.text;
-    console.log("📄 OCR text:", rawText.slice(0, 150));
-
-    const emailMatch = rawText.match(/\S+@\S+\.\S+/);
-    const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
+    // Simple parsing
+    const emailMatch = text.match(/\S+@\S+\.\S+/);
+    const phoneMatches = text.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
 
     const contact = {
       firstName: "",
@@ -43,19 +30,15 @@ router.post("/", async (req, res) => {
       additionalPhones: phoneMatches?.slice(1) || [],
       company: "",
       website: "",
-      notes: rawText,
+      notes: text,
       nickname: "",
       position: "",
     };
 
     res.json(contact);
   } catch (err) {
-    console.error("❌ OCR error:", err);
-    res.status(500).json({
-      message: "OCR processing failed",
-      detail: err.message,
-      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
-    });
+    console.error("❌ Tesseract OCR error:", err);
+    res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
 
