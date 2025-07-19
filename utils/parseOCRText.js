@@ -1,49 +1,93 @@
-// utils/parseOCRText.js
-module.exports = function parseOCRText(rawText) {
-  const lines = rawText.split("\n").map((line) => line.trim()).filter(Boolean);
+function parseOCRText(text) {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
-  // Email
-  const emailMatch = rawText.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
-
-  // Phone: supports international, spaces, dashes
-  const phoneMatches = rawText.match(/(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}/g);
-
-  // Website
-  const websiteMatch = rawText.match(/\b(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+\.[a-z]{2,}(?:\/[^\s]*)?\b/gi);
-
-  // Company: look for lines with "Co.", "Ltd", "Inc", "Company", or all-uppercase
-  let company = lines.find((line) =>
-    /(Co\.|Ltd|Inc|LLC|Company|Incorporated)/i.test(line) ||
-    /^[A-Z\s]{4,}$/.test(line)
-  ) || "";
-
-  // Position: common job titles
-  const positionTitles = /(CEO|CTO|COO|Manager|Director|Consultant|Engineer|Developer|Intern|Founder|Representative|Officer)/i;
-  const position = lines.find((line) => positionTitles.test(line)) || "";
-
-  // Name: heuristic — exclude lines with email, phone, company, or position
-  const name = lines.find((line) =>
-    !emailMatch?.[0]?.includes(line) &&
-    !position.includes(line) &&
-    !company.includes(line) &&
-    !line.match(/@|http|www|\d{2,}/) &&  // no URLs or numbers
-    /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$/.test(line)  // format: First Last
-  ) || "";
-
-  const nameParts = name.split(" ");
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
-  return {
-    firstName,
-    lastName,
+  const result = {
+    firstName: "",
+    lastName: "",
     nickname: "",
-    phone: phoneMatches?.[0] || "",
-    additionalPhones: phoneMatches?.slice(1) || [],
-    email: emailMatch?.[0] || "",
-    position,
-    company,
-    website: websiteMatch?.[0] || "",
-    notes: rawText,
+    position: "",
+    phoneNumber: "",
+    additionalPhones: [],
+    email: "",
+    company: "",
+    website: "",
+    notes: "", // will remain blank
   };
-};
+
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/;
+  const phoneRegex = /(\+?\d[\d\s\-]{7,15}\d)/;
+  const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
+
+  const usedLines = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Extract email
+    if (!result.email && emailRegex.test(line)) {
+      result.email = line.match(emailRegex)[0];
+      usedLines.add(i);
+      continue;
+    }
+
+    // Extract phone
+    if (phoneRegex.test(line)) {
+      const phone = line.match(phoneRegex)[0].replace(/\s+/g, "");
+      if (!result.phoneNumber) result.phoneNumber = phone;
+      else result.additionalPhones.push(phone);
+      usedLines.add(i);
+      continue;
+    }
+
+    // Extract website
+    if (!result.website && websiteRegex.test(line)) {
+      result.website = line.match(websiteRegex)[0]
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "");
+      usedLines.add(i);
+      continue;
+    }
+
+    // Extract name (basic heuristic)
+    if (
+      !result.firstName &&
+      /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(line)
+    ) {
+      const [first, last] = line.split(" ");
+      result.firstName = first;
+      result.lastName = last;
+      usedLines.add(i);
+      continue;
+    }
+
+    // Extract position
+    if (
+      !result.position &&
+      /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President)/i.test(line)
+    ) {
+      result.position = line;
+      usedLines.add(i);
+      continue;
+    }
+
+    // Extract company
+    if (
+      !result.company &&
+      /(Co\.|Ltd\.|Inc\.|Company|Corporation)/i.test(line)
+    ) {
+      result.company = line;
+      usedLines.add(i);
+      continue;
+    }
+  }
+
+  // No junk -> leave notes blank
+  result.notes = "";
+
+  return result;
+}
+
+module.exports = parseOCRText;
