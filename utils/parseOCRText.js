@@ -9,7 +9,7 @@ function parseOCRText(text) {
     lastName: "",
     nickname: "",
     position: "",
-    phoneNumber: "",
+    phone: "",
     additionalPhones: [],
     email: "",
     company: "",
