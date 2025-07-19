@@ -33,7 +33,7 @@ function parseOCRText(text) {
     // Extract phone
     if (phoneRegex.test(line)) {
       const phone = line.match(phoneRegex)[0].replace(/[^\d+]/g, "");
-      if (!result.phoneNumber) result.phoneNumber = phone;
+      if (!result.phone) result.phone = phone;
       else result.additionalPhones.push(phone);
       continue;
     }
