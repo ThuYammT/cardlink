@@ -1,6 +1,7 @@
 const express = require("express");
 const Tesseract = require("tesseract.js");
 const sharp = require("sharp");
+const parseOCRText = require("../utils/parseOCRText"); // ✅ import
 
 const router = express.Router();
 
@@ -14,31 +15,20 @@ router.post("/", async (req, res) => {
     const buffer = Buffer.from(imageBase64, "base64");
     const jpegBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
 
-    const { data: { text } } = await Tesseract.recognize(jpegBuffer, "eng");
+    const {
+      data: { text },
+    } = await Tesseract.recognize(jpegBuffer, "eng");
 
     console.log("🧠 OCR text:", text.slice(0, 150));
 
-    // Simple parsing
-    const emailMatch = text.match(/\S+@\S+\.\S+/);
-    const phoneMatches = text.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
+    const parsed = parseOCRText(text); // ✅ use rule-based parser
 
-    const contact = {
-      firstName: "",
-      lastName: "",
-      email: emailMatch?.[0] || "",
-      phone: phoneMatches?.[0] || "",
-      additionalPhones: phoneMatches?.slice(1) || [],
-      company: "",
-      website: "",
-      notes: text,
-      nickname: "",
-      position: "",
-    };
-
-    res.json(contact);
+    res.json(parsed);
   } catch (err) {
     console.error("❌ Tesseract OCR error:", err);
-    res.status(500).json({ message: "OCR processing failed", detail: err.message });
+    res
+      .status(500)
+      .json({ message: "OCR processing failed", detail: err.message });
   }
 });
 
