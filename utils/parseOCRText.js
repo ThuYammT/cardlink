@@ -14,14 +14,12 @@ function parseOCRText(text) {
     email: "",
     company: "",
     website: "",
-    notes: "", // will remain blank
+    notes: "", // intentionally left empty
   };
 
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/;
   const phoneRegex = /(\+?\d[\d\s\-]{7,15}\d)/;
   const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
-
-  const usedLines = new Set();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -29,25 +27,23 @@ function parseOCRText(text) {
     // Extract email
     if (!result.email && emailRegex.test(line)) {
       result.email = line.match(emailRegex)[0];
-      usedLines.add(i);
       continue;
     }
 
     // Extract phone
     if (phoneRegex.test(line)) {
-      const phone = line.match(phoneRegex)[0].replace(/\s+/g, "");
+      const phone = line.match(phoneRegex)[0].replace(/[^\d+]/g, "");
       if (!result.phoneNumber) result.phoneNumber = phone;
       else result.additionalPhones.push(phone);
-      usedLines.add(i);
       continue;
     }
 
     // Extract website
     if (!result.website && websiteRegex.test(line)) {
-      result.website = line.match(websiteRegex)[0]
+      result.website = line
+        .match(websiteRegex)[0]
         .replace(/^https?:\/\//, "")
         .replace(/^www\./, "");
-      usedLines.add(i);
       continue;
     }
 
@@ -59,17 +55,15 @@ function parseOCRText(text) {
       const [first, last] = line.split(" ");
       result.firstName = first;
       result.lastName = last;
-      usedLines.add(i);
       continue;
     }
 
-    // Extract position
+    // Extract position/title
     if (
       !result.position &&
       /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President)/i.test(line)
     ) {
       result.position = line;
-      usedLines.add(i);
       continue;
     }
 
@@ -79,15 +73,48 @@ function parseOCRText(text) {
       /(Co\.|Ltd\.|Inc\.|Company|Corporation)/i.test(line)
     ) {
       result.company = line;
-      usedLines.add(i);
       continue;
     }
   }
 
-  // No junk -> leave notes blank
+  // Fallback: name from email
+  if (!result.firstName && result.email.includes("@")) {
+    const namePart = result.email.split("@")[0]; // e.g. kalanyoo.ammaranon
+    const [first, last] = namePart.split(".");
+    if (first && last) {
+      result.firstName = capitalize(first);
+      result.lastName = capitalize(last);
+    }
+  }
+
+  // Fallback: website from email
+  if (!result.website && result.email.includes("@")) {
+    result.website = result.email.split("@")[1];
+  }
+
+  // Fallback: company from email domain
+  if (!result.company && result.email.includes("@")) {
+    const domain = result.email.split("@")[1];
+    const name = domain.split(".")[0];
+    result.company = capitalizeWords(name.replace(/[^a-zA-Z ]/g, ""));
+  }
+
+  // Notes stay blank
   result.notes = "";
 
   return result;
+}
+
+// Helpers
+function capitalize(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function capitalizeWords(text) {
+  return text
+    .split(/[\s._-]+/)
+    .map(capitalize)
+    .join(" ");
 }
 
 module.exports = parseOCRText;
