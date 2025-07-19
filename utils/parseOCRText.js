@@ -5,7 +5,7 @@ module.exports = function parseOCRText(rawText) {
   const emailMatch = rawText.match(/\S+@\S+\.\S+/);
   const phoneMatches = rawText.match(/(\+?\d[\d\s\-().]{7,}\d)/g);
   const websiteMatch = rawText.match(/https?:\/\/[^\s]+|www\.[^\s]+/i);
-  const nameRegex = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$/;
+  const nameRegex = /^[A-Z][a-zA-Z.'\-]+\s+[A-Z][a-zA-Z.'\-]+$/;
 
   let name = "";
   let position = "";
@@ -17,7 +17,7 @@ module.exports = function parseOCRText(rawText) {
       continue;
     }
 
-    if (!position && /(Director|Manager|Engineer|Consultant|Founder|CEO|CTO|Developer|Officer|Intern)/i.test(line)) {
+    if (!position && /(Director|Manager|Representative|Engineer|Consultant|Founder|CEO|CTO|Developer|Officer|Intern)/i.test(line)) {
       position = line;
       continue;
     }
@@ -25,6 +25,17 @@ module.exports = function parseOCRText(rawText) {
     if (!company && /(Company|Co\.|Ltd|LLC|Corp|Incorporated|Inc)/i.test(line)) {
       company = line;
     }
+  }
+
+  if (!name && lines.length > 0) {
+    // Fallback to 1st line if it's not email or position
+    const fallback = lines.find(l => !l.includes("@") && !l.match(/\d+/));
+    if (fallback) name = fallback;
+  }
+
+  if (!company && emailMatch) {
+    const domain = emailMatch[0].split("@")[1].split(".")[0];
+    company = domain.charAt(0).toUpperCase() + domain.slice(1);
   }
 
   const nameParts = name.split(" ");
