@@ -14,83 +14,107 @@ function parseOCRText(text) {
     email: "",
     company: "",
     website: "",
-    notes: "",
+    notes: "", // Leave blank for now, can store extra info
   };
 
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/gi;
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/g;
   const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
-  const websiteRegex = /((https?:\/\/)?(www\.)?[a-zA-Z0-9.-]+\.[a-z]{2,})/gi;
-  const companyKeywords = /(Co\.|Company|Corporation|Ltd|LLC|Inc|Group|Chamber|Studio|Association)/i;
-  const positionKeywords = /(Chief|Director|Manager|CEO|CTO|Engineer|Advisor|Consultant|Officer|Representative|President|Developer|Intern)/i;
+  const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
+  const jobTitleRegex = /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President|Developer|Founder|Intern)/i;
+  const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
+  const fullNameRegex = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$/;
 
-  // Collect all emails
-  const emails = [...text.matchAll(emailRegex)].map(match => match[0]);
-  if (emails.length > 0) {
-    result.email = emails[0];
-    if (emails.length > 1) {
-      result.notes += "\nAdditional emails: " + emails.slice(1).join(", ");
-    }
-  }
+  let possibleNameLine = "";
 
-  // Collect all phone numbers
-  const phones = [...text.matchAll(phoneRegex)].map(match => match[0].replace(/[^\d+]/g, ''));
-  if (phones.length > 0) {
-    result.phone = phones[0];
-    result.additionalPhones = phones.slice(1);
-  }
-
-  // Website
-  const websites = [...text.matchAll(websiteRegex)].map(match => match[0].replace(/^https?:\/\//, "").replace(/^www\./, ""));
-  if (websites.length > 0) result.website = websites[0];
-
-  // Position detection
-  const positionLine = lines.find(line => positionKeywords.test(line));
-  if (positionLine) result.position = positionLine;
-
-  // Company detection
-  const companyLine = lines.find(line => companyKeywords.test(line));
-  if (companyLine) result.company = companyLine;
-
-  // Name detection (heuristic: full name capitalized or appears before position/email)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    if (
-      /^[A-Z][a-z]+(\s[A-Z][a-z]+)+$/.test(line) ||             // e.g. John Doe
-      /^[A-Z\s]{5,30}$/.test(line) ||                           // e.g. KALANYOO AMMARANON
-      (/^[A-Z][a-z]+$/.test(line) && /^[A-Z][a-z]+$/.test(lines[i + 1] || ""))
-    ) {
-      const nameLine = /^[A-Z][a-z]+(\s[A-Z][a-z]+)+$/.test(line)
-        ? line
-        : line + " " + (lines[i + 1] || "");
+    // ✅ Extract emails
+    const emails = line.match(emailRegex);
+    if (emails && emails.length > 0) {
+      if (!result.email) result.email = emails[0];
+      if (emails.length > 1) {
+        result.notes += `Additional emails: ${emails.slice(1).join(", ")}\n`;
+      }
+      continue;
+    }
 
-      const words = nameLine.split(" ");
-      result.firstName = words[0];
-      result.lastName = words.slice(1).join(" ");
-      break;
+    // ✅ Extract phone numbers
+    const phones = line.match(phoneRegex);
+    if (phones && phones.length > 0) {
+      phones.forEach((p) => {
+        const cleaned = p.replace(/[^\d+]/g, "");
+        if (cleaned.length >= 8 && cleaned.length <= 13) {
+          if (!result.phone) result.phone = cleaned;
+          else if (!result.additionalPhones.includes(cleaned)) {
+            result.additionalPhones.push(cleaned);
+          }
+        }
+      });
+      continue;
+    }
+
+    // ✅ Extract website (but avoid lines with '@')
+    if (!result.website && websiteRegex.test(line) && !line.includes("@")) {
+      result.website = line
+        .match(websiteRegex)[0]
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "");
+      continue;
+    }
+
+    // ✅ Extract job position
+    if (!result.position && jobTitleRegex.test(line)) {
+      result.position = line;
+      continue;
+    }
+
+    // ✅ Extract company
+    if (!result.company && companyRegex.test(line)) {
+      result.company = line;
+      continue;
+    }
+
+    // ✅ Try matching a full name line
+    if (!result.firstName && fullNameRegex.test(line)) {
+      possibleNameLine = line;
+      continue;
     }
   }
 
-  // Fallback: infer name from email
+  // ✅ Use matched full name
+  if (possibleNameLine) {
+    const nameParts = possibleNameLine.split(" ");
+    result.firstName = nameParts[0];
+    result.lastName = nameParts.slice(1).join(" ");
+  }
+
+  // ✅ Fallback name from email local part
   if (!result.firstName && result.email.includes("@")) {
-    const parts = result.email.split("@")[0].split(/[._]/);
-    if (parts.length >= 2) {
-      result.firstName = capitalize(parts[0]);
-      result.lastName = capitalize(parts.slice(1).join(" "));
+    const [local] = result.email.split("@");
+    const [first, last] = local.split(".");
+    if (first && last) {
+      result.firstName = capitalize(first);
+      result.lastName = capitalize(last);
     }
   }
 
-  // Fallback: company from email domain
+  // ✅ Fallback company from domain
   if (!result.company && result.email.includes("@")) {
-    const domain = result.email.split("@")[1].split(".")[0];
-    result.company = capitalizeWords(domain.replace(/[^a-zA-Z]/g, ""));
+    const domain = result.email.split("@")[1];
+    const name = domain.split(".")[0];
+    result.company = capitalizeWords(name.replace(/[^a-zA-Z ]/g, ""));
   }
 
-  result.notes = result.notes.trim();
+  // ✅ Fallback website from email domain
+  if (!result.website && result.email.includes("@")) {
+    result.website = result.email.split("@")[1];
+  }
+
   return result;
 }
 
-// Helpers
+// 🛠️ Helpers
 function capitalize(word) {
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
