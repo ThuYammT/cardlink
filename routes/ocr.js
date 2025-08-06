@@ -15,9 +15,13 @@ router.post("/", async (req, res) => {
     const buffer = Buffer.from(imageBase64, "base64");
     const jpegBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
 
-    const {
+        const {
       data: { text },
-    } = await Tesseract.recognize(jpegBuffer, "eng");
+    } = await Tesseract.recognize(jpegBuffer, "eng", {
+      tessedit_char_whitelist:
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
+    });
+
 
     console.log("🧠 OCR text:", text.slice(0, 150));
 

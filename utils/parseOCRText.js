@@ -14,100 +14,85 @@ function parseOCRText(text) {
     email: "",
     company: "",
     website: "",
-    notes: "", // intentionally left empty
+    notes: "",
   };
 
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/;
-  const phoneRegex = /(\+?\d[\d\s\-]{7,15}\d)/;
-  const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/gi;
+  const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
+  const websiteRegex = /((https?:\/\/)?(www\.)?[a-zA-Z0-9.-]+\.[a-z]{2,})/gi;
+  const companyKeywords = /(Co\.|Company|Corporation|Ltd|LLC|Inc|Group|Chamber|Studio|Association)/i;
+  const positionKeywords = /(Chief|Director|Manager|CEO|CTO|Engineer|Advisor|Consultant|Officer|Representative|President|Developer|Intern)/i;
 
+  // Collect all emails
+  const emails = [...text.matchAll(emailRegex)].map(match => match[0]);
+  if (emails.length > 0) {
+    result.email = emails[0];
+    if (emails.length > 1) {
+      result.notes += "\nAdditional emails: " + emails.slice(1).join(", ");
+    }
+  }
+
+  // Collect all phone numbers
+  const phones = [...text.matchAll(phoneRegex)].map(match => match[0].replace(/[^\d+]/g, ''));
+  if (phones.length > 0) {
+    result.phone = phones[0];
+    result.additionalPhones = phones.slice(1);
+  }
+
+  // Website
+  const websites = [...text.matchAll(websiteRegex)].map(match => match[0].replace(/^https?:\/\//, "").replace(/^www\./, ""));
+  if (websites.length > 0) result.website = websites[0];
+
+  // Position detection
+  const positionLine = lines.find(line => positionKeywords.test(line));
+  if (positionLine) result.position = positionLine;
+
+  // Company detection
+  const companyLine = lines.find(line => companyKeywords.test(line));
+  if (companyLine) result.company = companyLine;
+
+  // Name detection (heuristic: full name capitalized or appears before position/email)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Extract email
-    if (!result.email && emailRegex.test(line)) {
-      result.email = line.match(emailRegex)[0];
-      continue;
-    }
-
-    // Extract phone
-    if (phoneRegex.test(line)) {
-      const phone = line.match(phoneRegex)[0].replace(/[^\d+]/g, "");
-      if (!result.phone) result.phone = phone;
-      else result.additionalPhones.push(phone);
-      continue;
-    }
-
-    // Extract website
-    if (!result.website && websiteRegex.test(line)) {
-      result.website = line
-        .match(websiteRegex)[0]
-        .replace(/^https?:\/\//, "")
-        .replace(/^www\./, "");
-      continue;
-    }
-
-    // Extract name (basic heuristic)
     if (
-      !result.firstName &&
-      /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(line)
+      /^[A-Z][a-z]+(\s[A-Z][a-z]+)+$/.test(line) ||             // e.g. John Doe
+      /^[A-Z\s]{5,30}$/.test(line) ||                           // e.g. KALANYOO AMMARANON
+      (/^[A-Z][a-z]+$/.test(line) && /^[A-Z][a-z]+$/.test(lines[i + 1] || ""))
     ) {
-      const [first, last] = line.split(" ");
-      result.firstName = first;
-      result.lastName = last;
-      continue;
-    }
+      const nameLine = /^[A-Z][a-z]+(\s[A-Z][a-z]+)+$/.test(line)
+        ? line
+        : line + " " + (lines[i + 1] || "");
 
-    // Extract position/title
-    if (
-      !result.position &&
-      /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President)/i.test(line)
-    ) {
-      result.position = line;
-      continue;
-    }
-
-    // Extract company
-    if (
-      !result.company &&
-      /(Co\.|Ltd\.|Inc\.|Company|Corporation)/i.test(line)
-    ) {
-      result.company = line;
-      continue;
+      const words = nameLine.split(" ");
+      result.firstName = words[0];
+      result.lastName = words.slice(1).join(" ");
+      break;
     }
   }
 
-  // Fallback: name from email
+  // Fallback: infer name from email
   if (!result.firstName && result.email.includes("@")) {
-    const namePart = result.email.split("@")[0]; // e.g. kalanyoo.ammaranon
-    const [first, last] = namePart.split(".");
-    if (first && last) {
-      result.firstName = capitalize(first);
-      result.lastName = capitalize(last);
+    const parts = result.email.split("@")[0].split(/[._]/);
+    if (parts.length >= 2) {
+      result.firstName = capitalize(parts[0]);
+      result.lastName = capitalize(parts.slice(1).join(" "));
     }
-  }
-
-  // Fallback: website from email
-  if (!result.website && result.email.includes("@")) {
-    result.website = result.email.split("@")[1];
   }
 
   // Fallback: company from email domain
   if (!result.company && result.email.includes("@")) {
-    const domain = result.email.split("@")[1];
-    const name = domain.split(".")[0];
-    result.company = capitalizeWords(name.replace(/[^a-zA-Z ]/g, ""));
+    const domain = result.email.split("@")[1].split(".")[0];
+    result.company = capitalizeWords(domain.replace(/[^a-zA-Z]/g, ""));
   }
 
-  // Notes stay blank
-  result.notes = "";
-
+  result.notes = result.notes.trim();
   return result;
 }
 
 // Helpers
 function capitalize(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1);
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
 
 function capitalizeWords(text) {
