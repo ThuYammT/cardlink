@@ -15,18 +15,20 @@ cloudinary.config({
 
 router.post("/", async (req, res) => {
   try {
-    const { imageUrl } = req.body; // ✅ expect URL
+    const { imageUrl } = req.body;
     if (!imageUrl) {
       return res.status(400).json({ message: "Missing imageUrl" });
     }
 
-    // 🖼 Download image from Cloudinary URL
+    // 🌐 Fetch image
     const response = await fetch(imageUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const jpegBuffer = Buffer.from(arrayBuffer);
+    if (!response.ok) {
+      return res.status(400).json({ message: "Failed to fetch image" });
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
 
     // 🧠 OCR
-    const { data: { text } } = await Tesseract.recognize(jpegBuffer, "eng", {
+    const { data: { text } } = await Tesseract.recognize(buffer, "eng", {
       tessedit_char_whitelist:
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
     });
@@ -43,6 +45,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
+
 
 
 module.exports = router;
