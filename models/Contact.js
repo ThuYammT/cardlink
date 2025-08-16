@@ -12,6 +12,7 @@ const contactSchema = new mongoose.Schema({
   company: String,
   website: String,
   notes: String,
+  cardImage: { type: String }, // Cloudinary URL of the scanned card
   isFavorite: { type: Boolean, default: false }
 }, { timestamps: true });
 
