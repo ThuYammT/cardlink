@@ -7,7 +7,7 @@ const contactSchema = new mongoose.Schema({
   nickname: String,             // ✅ new
   position: String,             // ✅ new
   phone: String,
-  additionalPhones: String,   // ✅ upcoming for Step 2
+  additionalPhones: [String],   // ✅ upcoming for Step 2
   email: String,
   company: String,
   website: String,
