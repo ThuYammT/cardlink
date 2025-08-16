@@ -15,47 +15,34 @@ cloudinary.config({
 
 router.post("/", async (req, res) => {
   try {
-    const { imageBase64 } = req.body;
-    if (!imageBase64) {
-      return res.status(400).json({ message: "Missing base64 image" });
+    const { imageUrl } = req.body; // ✅ expect URL
+    if (!imageUrl) {
+      return res.status(400).json({ message: "Missing imageUrl" });
     }
 
-    // 🖼 Convert to buffer & compress
-    const buffer = Buffer.from(imageBase64, "base64");
-    const jpegBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
+    // 🖼 Download image from Cloudinary URL
+    const response = await fetch(imageUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const jpegBuffer = Buffer.from(arrayBuffer);
 
-    // ⬆️ Upload compressed image to Cloudinary
-    const uploadResponse = await cloudinary.uploader.upload_stream(
-      { folder: "cardlink/cards" }, // optional folder
-      async (error, result) => {
-        if (error) {
-          console.error("❌ Cloudinary upload error:", error);
-          return res.status(500).json({ message: "Image upload failed" });
-        }
+    // 🧠 OCR
+    const { data: { text } } = await Tesseract.recognize(jpegBuffer, "eng", {
+      tessedit_char_whitelist:
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
+    });
 
-        // 🧠 OCR once upload is done
-        const { data: { text } } = await Tesseract.recognize(jpegBuffer, "eng", {
-          tessedit_char_whitelist:
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
-        });
+    console.log("🧠 OCR text:", text.slice(0, 150));
+    const parsed = parseOCRText(text);
 
-        console.log("🧠 OCR text:", text.slice(0, 150));
-        const parsed = parseOCRText(text);
+    // ✅ Attach Cloudinary image URL
+    parsed.cardImageUrl = imageUrl;
 
-        // ✅ Attach Cloudinary image URL
-        parsed.cardImageUrl = result.secure_url;
-
-        res.json(parsed);
-      }
-    );
-
-    // 🔗 Pipe buffer to Cloudinary upload
-    require("streamifier").createReadStream(jpegBuffer).pipe(uploadResponse);
-
+    res.json(parsed);
   } catch (err) {
     console.error("❌ OCR error:", err);
     res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
+
 
 module.exports = router;
