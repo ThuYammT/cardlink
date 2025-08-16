@@ -26,7 +26,9 @@ router.post('/', authMiddleware, async (req, res) => {
     await contact.save();
     res.status(201).json(contact);
   } catch (err) {
+    console.error("❌ Contact save error:", err);   // 👈 log it
     res.status(500).json({ message: 'Failed to save contact' });
+    
   }
 });
 
