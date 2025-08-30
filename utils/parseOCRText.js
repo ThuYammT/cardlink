@@ -17,28 +17,23 @@ function parseOCRText(text) {
     notes: "", // Leave blank for now, can store extra info
   };
 
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/g;
+  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g;
   const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
   const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
-  const jobTitleRegex = /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President|Developer|Founder|Intern)/i;
+  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Full-Time)/i; // Improved regex for job titles
   const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
-  const fullNameRegex = /^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$/;
+  const fullNameRegex = /([A-Za-z]+(?:\s[A-Za-z]+)+)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)/; // Updated regex to allow titles and commas
 
   let possibleNameLine = "";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
-    // Log each line for debugging
     console.log("Processing line:", line);
 
     // ✅ Extract emails
     const emails = line.match(emailRegex);
     if (emails && emails.length > 0) {
-      if (!result.email) result.email = emails[0];
-      if (emails.length > 1) {
-        result.notes += `Additional emails: ${emails.slice(1).join(", ")}\n`;
-      }
+      result.email = emails[0];
       console.log("Found email:", result.email);
       continue;
     }
@@ -59,7 +54,7 @@ function parseOCRText(text) {
       continue;
     }
 
-    // ✅ Extract website (but avoid lines with '@')
+    // ✅ Extract website
     if (!result.website && websiteRegex.test(line) && !line.includes("@")) {
       result.website = line
         .match(websiteRegex)[0]
@@ -69,7 +64,7 @@ function parseOCRText(text) {
       continue;
     }
 
-    // ✅ Extract job position
+    // ✅ Extract job position (full-time lecturer, etc.)
     if (!result.position && jobTitleRegex.test(line)) {
       result.position = line;
       console.log("Found position:", result.position);
@@ -93,13 +88,14 @@ function parseOCRText(text) {
 
   // ✅ Use matched full name
   if (possibleNameLine) {
-    const nameParts = possibleNameLine.split(" ");
-    console.log("Name parts:", nameParts);
-
-    result.firstName = nameParts[0];
-    result.lastName = nameParts.slice(1).join(" ");
-    console.log("Extracted first name:", result.firstName);
-    console.log("Extracted last name:", result.lastName);
+    const nameMatch = possibleNameLine.match(fullNameRegex);
+    if (nameMatch && nameMatch[1]) {
+      const nameParts = nameMatch[1].split(" ");
+      result.firstName = nameParts[0];
+      result.lastName = nameParts.slice(1).join(" ");
+      console.log("Extracted first name:", result.firstName);
+      console.log("Extracted last name:", result.lastName);
+    }
   }
 
   // ✅ Fallback name from email local part
