@@ -1,5 +1,3 @@
-// parseOCRText.js (JavaScript version)
-
 function parseOCRText(rawText) {
   const lines = splitCleanLines(rawText);
 
@@ -143,14 +141,17 @@ function parseOCRText(rawText) {
     }
   });
 
-  // 4) Positions (job titles): prefer exact matches or lines dominated by titles
+  // 4) Positions (job titles)
   lines.forEach((line, i) => {
     if (consumed[i]) return;
     const lc = line.toLowerCase();
-    if (jobTitles.some((t) => wordInLine(lc, t))) {
+    const jobTitles = [
+      "director", "manager", "chief", "ceo", "consultant", "founder", "developer", "president", "engineer"
+    ];
+    if (jobTitles.some((t) => line.toLowerCase().includes(t))) {
       // keep the shortest reasonable job line (e.g., "Senior Software Engineer")
       if (!result.position || line.length < result.position.length) {
-        result.position = squeezeSpaces(line);
+        result.position = line;
         positionConfidence = 0.8;
         consumed[i] = true;
       }
@@ -195,7 +196,7 @@ function parseOCRText(rawText) {
   // --- Phones: choose primary
   const phones = Array.from(collectedPhones);
   if (phones.length > 0) {
-    phones.sort((a, b) => b.length - a.length);
+    phones.sort((a, b) => b.length - a.length);  // Prioritize longer numbers
     result.phone = phones[0];
     result.additionalPhones = phones.slice(1);
   }
@@ -225,31 +226,25 @@ function parseOCRText(rawText) {
     websiteConfidence = Math.max(websiteConfidence, 0.5);
   }
 
-  // --- Collect leftover useful lines as notes (skip obvious addresses & already-consumed) ---
+  // --- Collect leftover useful lines as notes ---
   lines.forEach((line, i) => {
     if (consumed[i]) return;
-    if (likelyAddressPatterns.test(line)) {
-      leftoverForNotes.push(line);
-      return;
-    }
-    if (line.length <= 80 && /\w/.test(line)) {
-      leftoverForNotes.push(line);
-    }
+    leftoverForNotes.push(line);  // Consider these as notes
   });
 
   if (leftoverForNotes.length) {
     appendNote(result, `Other info:\n- ${leftoverForNotes.join("\n- ")}`);
   }
 
-  // --- Confidence export ---
+  // --- Final confidence ---
   result.confidence = {
     firstName: result.firstName ? nameConfidence : 0,
     lastName: result.lastName ? nameConfidence : 0,
     position: result.position ? positionConfidence : 0,
     company: result.company ? companyConfidence : 0,
     email: result.email ? emailConfidence : 0,
-    website: result.website ? websiteConfidence : 0.0,
-    phone: result.phone ? 0.8 : 0.0,
+    website: result.website ? websiteConfidence : 0,
+    phone: result.phone ? 0.8 : 0,
   };
 
   // Dedupe additionalPhones vs phone
@@ -311,13 +306,8 @@ function stripLeadingLabels(line, labels) {
 
 function normalizePhone(raw) {
   let s = raw.trim();
-  s = s.replace(/\b(ext\.?|x)\s*\d{1,5}\b/i, "").trim();
-  const hasPlus = s.trim().startsWith("+");
-  s = s.replace(/[^\d]/g, "");
-  if (hasPlus) s = "+" + s;
-  const digitsOnly = s.replace(/\D/g, "");
-  if (digitsOnly.length < 8 || digitsOnly.length > 20) return null;
-  return s;
+  s = s.replace(/[^\d+]/g, "");  // Strip non-digit chars
+  return s.length >= 8 ? s : null;  // Validate length of phone number
 }
 
 function looksLikeFullName(line) {
@@ -355,18 +345,14 @@ function toTitleWords(text) {
 
 function guessNameFromEmail(email) {
   const local = email.split("@")[0];
-  const byDot = local.split(".");
-  const byUnd = local.split("_");
-  const parts = byDot.length >= 2 ? byDot : byUnd.length >= 2 ? byUnd : local.match(/[A-Za-z]+/g) || [];
-  if (parts.length >= 2) {
-    return { first: toTitleWord(parts[0]), last: toTitleWords(parts.slice(1).join(" ")) };
-  }
-  return { first: toTitleWord(parts[0] || ""), last: "" };
+  const [first, last] = local.split(".");
+  return { first, last: last || "" };
 }
 
-function appendNote(res, note) {
-  if (!note.trim()) return;
-  res.notes += (res.notes ? "\n" : "") + note;
+function appendNote(result, note) {
+  if (note.trim()) {
+    result.notes += (result.notes ? "\n" : "") + note;
+  }
 }
 
 module.exports = parseOCRText;
