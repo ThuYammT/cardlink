@@ -28,6 +28,9 @@ function parseOCRText(text) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    
+    // Log each line for debugging
+    console.log("Processing line:", line);
 
     // ✅ Extract emails
     const emails = line.match(emailRegex);
@@ -36,6 +39,7 @@ function parseOCRText(text) {
       if (emails.length > 1) {
         result.notes += `Additional emails: ${emails.slice(1).join(", ")}\n`;
       }
+      console.log("Found email:", result.email);
       continue;
     }
 
@@ -51,6 +55,7 @@ function parseOCRText(text) {
           }
         }
       });
+      console.log("Found phone:", result.phone);
       continue;
     }
 
@@ -60,24 +65,28 @@ function parseOCRText(text) {
         .match(websiteRegex)[0]
         .replace(/^https?:\/\//, "")
         .replace(/^www\./, "");
+      console.log("Found website:", result.website);
       continue;
     }
 
     // ✅ Extract job position
     if (!result.position && jobTitleRegex.test(line)) {
       result.position = line;
+      console.log("Found position:", result.position);
       continue;
     }
 
     // ✅ Extract company
     if (!result.company && companyRegex.test(line)) {
       result.company = line;
+      console.log("Found company:", result.company);
       continue;
     }
 
     // ✅ Try matching a full name line
     if (!result.firstName && fullNameRegex.test(line)) {
       possibleNameLine = line;
+      console.log("Possible name line:", possibleNameLine);
       continue;
     }
   }
@@ -85,8 +94,12 @@ function parseOCRText(text) {
   // ✅ Use matched full name
   if (possibleNameLine) {
     const nameParts = possibleNameLine.split(" ");
+    console.log("Name parts:", nameParts);
+
     result.firstName = nameParts[0];
     result.lastName = nameParts.slice(1).join(" ");
+    console.log("Extracted first name:", result.firstName);
+    console.log("Extracted last name:", result.lastName);
   }
 
   // ✅ Fallback name from email local part
@@ -97,6 +110,8 @@ function parseOCRText(text) {
       result.firstName = capitalize(first);
       result.lastName = capitalize(last);
     }
+    console.log("Fallback name from email - First Name:", result.firstName);
+    console.log("Fallback name from email - Last Name:", result.lastName);
   }
 
   // ✅ Fallback company from domain
@@ -104,12 +119,17 @@ function parseOCRText(text) {
     const domain = result.email.split("@")[1];
     const name = domain.split(".")[0];
     result.company = capitalizeWords(name.replace(/[^a-zA-Z ]/g, ""));
+    console.log("Fallback company from email domain:", result.company);
   }
 
   // ✅ Fallback website from email domain
   if (!result.website && result.email.includes("@")) {
     result.website = result.email.split("@")[1];
+    console.log("Fallback website from email domain:", result.website);
   }
+
+  // Log the final result
+  console.log("Final parsed result:", result);
 
   return result;
 }
