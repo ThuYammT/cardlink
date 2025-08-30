@@ -23,8 +23,8 @@ function parseOCRText(text) {
   const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Full-Time)/i; // Improved job titles regex
   const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
   
-  // Updated fullNameRegex to handle names with titles like Ph.D., Dr., Prof., etc.
-  const fullNameRegex = /([A-Za-z]+(?:\s[A-Za-z]+)+)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)/;
+  // Updated fullNameRegex to handle names with titles and ensure it captures correct names
+  const fullNameRegex = /^([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)$/;
 
   let possibleNameLine = "";
 
