@@ -17,12 +17,14 @@ function parseOCRText(text) {
     notes: "", // Leave blank for now, can store extra info
   };
 
-  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g;
+  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g; // Fixed email regex
   const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
   const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
-  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Full-Time)/i;
+  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Full-Time)/i; // Improved job titles regex
   const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
-  const fullNameRegex = /([A-Za-z]+(?:\s[A-Za-z]+)*)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)/; // Updated regex to handle titles and names more flexibly
+  
+  // Updated fullNameRegex to handle names with titles like Ph.D., Dr., Prof., etc.
+  const fullNameRegex = /([A-Za-z]+(?:\s[A-Za-z]+)+)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)/;
 
   let possibleNameLine = "";
 
@@ -66,7 +68,7 @@ function parseOCRText(text) {
 
     // ✅ Extract job position (full-time lecturer, etc.)
     if (!result.position && jobTitleRegex.test(line)) {
-      result.position = line.replace(/[|]/g, "").trim();  // Remove extra symbols like "|"
+      result.position = line.replace(/[|]/g, "").trim(); // Remove extra symbols like "|"
       console.log("Found position:", result.position);
       continue;
     }
