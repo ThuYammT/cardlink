@@ -17,16 +17,21 @@ function parseOCRText(text) {
     notes: "", // Leave blank for now, can store extra info
   };
 
-  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g; // Fixed email regex
+  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g; // Email extraction regex
   const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
   const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
-  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Full-Time)/i; // Improved job titles regex
+  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Chairperson)/i; // Job titles regex
   const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
-  
-  // Updated fullNameRegex to handle names with titles and ensure it captures correct names
-  const fullNameRegex = /^([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)(,?\s*(Ph\.D\.|M\.S\.|Jr\.|Dr\.|Prof\.)?)$/;
+
+  // Full Name Regex (handles title before or after the name)
+  const fullNameRegex = /^(Dr\.|Prof\.|Ph\.D\.|M\.S\.)?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)(\s*(,?\s*(Dr\.|Ph\.D\.|M\.S\.|Prof\.))?)$/;
 
   let possibleNameLine = "";
+
+  // Helper function to clean lines from unwanted characters
+  function cleanLine(line) {
+    return line.replace(/[|=]/g, "").trim();
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -68,19 +73,19 @@ function parseOCRText(text) {
 
     // ✅ Extract job position (full-time lecturer, etc.)
     if (!result.position && jobTitleRegex.test(line)) {
-      result.position = line.replace(/[|]/g, "").trim(); // Remove extra symbols like "|"
+      result.position = cleanLine(line);  // Clean extra symbols like "|"
       console.log("Found position:", result.position);
       continue;
     }
 
     // ✅ Extract company
     if (!result.company && companyRegex.test(line)) {
-      result.company = line;
+      result.company = cleanLine(line);  // Clean extra symbols
       console.log("Found company:", result.company);
       continue;
     }
 
-    // ✅ Try matching a full name line
+    // ✅ Try matching a full name line with title
     if (!result.firstName && fullNameRegex.test(line)) {
       possibleNameLine = line;
       console.log("Possible name line:", possibleNameLine);
@@ -91,10 +96,9 @@ function parseOCRText(text) {
   // ✅ Use matched full name
   if (possibleNameLine) {
     const nameMatch = possibleNameLine.match(fullNameRegex);
-    if (nameMatch && nameMatch[1]) {
-      const nameParts = nameMatch[1].split(" ");
-      result.firstName = nameParts[0];
-      result.lastName = nameParts.slice(1).join(" ");
+    if (nameMatch && nameMatch[2]) {
+      result.firstName = nameMatch[2].split(" ")[0];
+      result.lastName = nameMatch[2].split(" ").slice(1).join(" ");
       console.log("Extracted first name:", result.firstName);
       console.log("Extracted last name:", result.lastName);
     }
