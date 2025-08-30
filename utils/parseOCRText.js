@@ -1,5 +1,8 @@
-function parseOCRText(rawText) {
-  const lines = splitCleanLines(rawText);
+function parseOCRText(text) {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
   const result = {
     firstName: "",
@@ -15,344 +18,106 @@ function parseOCRText(rawText) {
     confidence: {},
   };
 
-  // --- Dictionaries & regexes ---
-  const emailRegex = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b/g;
-  // Allow spaces, dashes, parentheses; start with + or digit; 8–20 chars after stripping
-  const phoneCandidate = /(?<![#\w])(\+?\d[\d\s\-().]{6,}\d)(?![#\w])/g;
-  const urlRegex =
-    /\b(?:(?:https?:\/\/)?(?:www\.)?)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+(?:\/[^\s]*)?\b/g;
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/g;
+  const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
+  const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
+  const jobTitleRegex = /(Director|Manager|Chief|CEO|Engineer|Consultant|Officer|Representative|President|Developer|Founder|Intern)/i;
+  const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
+  const fullNameRegex = /([A-Z][a-z]+(?: [A-Z][a-z]+)+|\b[A-Za-z]+ [A-Za-z]+\b)/;
 
-  // Titles you’ll likely see on cards (feel free to extend)
-  const jobTitles = [
-    "chief executive officer",
-    "ceo",
-    "chief technology officer",
-    "cto",
-    "chief operating officer",
-    "coo",
-    "chief marketing officer",
-    "cmo",
-    "chief product officer",
-    "cpo",
-    "director",
-    "managing director",
-    "general manager",
-    "manager",
-    "assistant manager",
-    "lead",
-    "head",
-    "principal",
-    "partner",
-    "associate",
-    "consultant",
-    "engineer",
-    "software engineer",
-    "developer",
-    "designer",
-    "officer",
-    "specialist",
-    "representative",
-    "account executive",
-    "sales executive",
-    "business development",
-    "bd",
-    "founder",
-    "co-founder",
-    "president",
-    "intern",
-    "analyst",
-    "researcher",
-    "lecturer",
-    "professor",
-  ];
+  let possibleNameLine = "";
 
-  // Common company suffixes / keywords
-  const companySuffixes = [
-    "co.",
-    "co",
-    "company",
-    "ltd.",
-    "ltd",
-    "llc",
-    "corp",
-    "inc",
-    "limited",
-    "public company",
-    "plc",
-    "partnership",
-    "co., ltd.",
-  ];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
-  // Labels that often precede phone; use to boost phone confidence & remove label
-  const phoneLabels = ["tel", "mobile", "m.", "m", "cell", "phone", "fax", "t", "p", "hotline"];
+    // Log each line for debugging
+    console.log("Processing line:", line);
 
-  // Ignore lines that look like addresses (kept to notes later)
-  const likelyAddressPatterns = /(street|road|rd\.|soi|moo|zip|postcode|suite|floor|fl\.|bldg|building|city|province|state|country|\d{3,}\/\d+)/i;
-
-  // --- Buckets while scanning ---
-  const collectedPhones = new Set();
-  const leftoverForNotes = [];
-  let probableNameLine = "";
-  let nameConfidence = 0;
-  let positionConfidence = 0;
-  let companyConfidence = 0;
-  let websiteConfidence = 0;
-  let emailConfidence = 0;
-
-  // --- First pass: extract strong-structured fields and mark lines we consume ---
-  const consumed = new Array(lines.length).fill(false);
-
-  // 1) Emails
-  lines.forEach((line, i) => {
-    const matches = line.match(emailRegex);
-    if (matches) {
-      if (!result.email) {
-        result.email = matches[0].toLowerCase();
-        emailConfidence = 0.95;
-      }
-      if (matches.length > 1) {
-        appendNote(result, `Additional emails: ${matches.slice(1).join(", ")}`);
-      }
-      consumed[i] = true;
+    // Extract emails
+    const emails = line.match(emailRegex);
+    if (emails && emails.length > 0) {
+      result.email = emails[0];
+      result.confidence.email = 0.9;
+      console.log("Found email:", result.email);
+      continue;
     }
-  });
 
-  // 2) Phones
-  lines.forEach((line, i) => {
-    const cleanedLabelLine = stripLeadingLabels(line, phoneLabels);
-    const matches = cleanedLabelLine.match(phoneCandidate);
-    if (matches) {
-      for (const raw of matches) {
-        const normalized = normalizePhone(raw);
-        if (normalized) collectedPhones.add(normalized);
-      }
-      consumed[i] = true;
+    // Extract phone numbers
+    const phones = line.match(phoneRegex);
+    if (phones && phones.length > 0) {
+      phones.forEach((p) => {
+        const cleaned = p.replace(/[^\d+]/g, "");
+        if (cleaned.length >= 8 && cleaned.length <= 13) {
+          if (!result.phone) result.phone = cleaned;
+          else if (!result.additionalPhones.includes(cleaned)) {
+            result.additionalPhones.push(cleaned);
+          }
+        }
+      });
+      result.confidence.phone = 0.8;
+      console.log("Found phone:", result.phone);
+      continue;
     }
-  });
 
-  // 3) Websites (avoid lines that include @ to prevent email collision)
-  lines.forEach((line, i) => {
-    if (line.includes("@")) return;
-    const matches = line.match(urlRegex);
-    if (matches && !result.website) {
-      result.website = cleanWebsite(matches[0]);
-      websiteConfidence = 0.8;
-      consumed[i] = true;
+    // Extract job title
+    if (!result.position && jobTitleRegex.test(line)) {
+      result.position = line;
+      result.confidence.position = 0.7;
+      console.log("Found position:", result.position);
+      continue;
     }
-  });
 
-  // 4) Positions (job titles)
-  lines.forEach((line, i) => {
-    if (consumed[i]) return;
-    const lc = line.toLowerCase();
-    const jobTitles = [
-      "director", "manager", "chief", "ceo", "consultant", "founder", "developer", "president", "engineer"
-    ];
-    if (jobTitles.some((t) => line.toLowerCase().includes(t))) {
-      // keep the shortest reasonable job line (e.g., "Senior Software Engineer")
-      if (!result.position || line.length < result.position.length) {
-        result.position = line;
-        positionConfidence = 0.8;
-        consumed[i] = true;
-      }
+    // Extract company
+    if (!result.company && companyRegex.test(line)) {
+      result.company = line;
+      result.confidence.company = 0.8;
+      console.log("Found company:", result.company);
+      continue;
     }
-  });
 
-  // 5) Company lines: contain suffixes/keywords, all-caps, or near top/bottom prominence
-  lines.forEach((line, i) => {
-    if (consumed[i]) return;
-    const lc = line.toLowerCase();
-    const hasSuffix = companySuffixes.some((s) => wordInLine(lc, s));
-    const looksAllCapsWord = line.length <= 40 && isMostlyCaps(line) && !/\d/.test(line);
-    if (!result.company && (hasSuffix || looksAllCapsWord)) {
-      result.company = tidyCompany(line);
-      companyConfidence = hasSuffix ? 0.85 : 0.6;
-      consumed[i] = true;
+    // Try to match full name
+    if (!result.firstName && fullNameRegex.test(line)) {
+      possibleNameLine = line;
+      console.log("Possible name line:", possibleNameLine);
+      continue;
     }
-  });
-
-  // 6) Full name guess:
-  //    - Prefer 2–4 tokens, each Capitalized or UPPER
-  //    - Avoid lines containing titles/labels/domains
-  lines.forEach((line, i) => {
-    if (consumed[i]) return;
-    if (looksLikeFullName(line)) {
-      // prefer the one nearest to top third (common on cards)
-      if (!probableNameLine) {
-        probableNameLine = line;
-        nameConfidence = 0.75;
-      }
-    }
-  });
-
-  // --- Assign name if found ---
-  if (probableNameLine) {
-    const parts = probableNameLine.trim().split(/\s+/);
-    const { first, last } = splitName(parts);
-    result.firstName = first;
-    result.lastName = last;
   }
 
-  // --- Phones: choose primary
-  const phones = Array.from(collectedPhones);
-  if (phones.length > 0) {
-    phones.sort((a, b) => b.length - a.length);  // Prioritize longer numbers
-    result.phone = phones[0];
-    result.additionalPhones = phones.slice(1);
+  // Use matched full name
+  if (possibleNameLine) {
+    const nameParts = possibleNameLine.split(" ");
+    console.log("Name parts:", nameParts);
+
+    if (nameParts.length >= 2) {
+      result.firstName = nameParts[0];
+      result.lastName = nameParts.slice(1).join(" ");
+    } else {
+      result.firstName = nameParts[0];
+    }
+
+    console.log("Extracted first name:", result.firstName);
+    console.log("Extracted last name:", result.lastName);
   }
 
-  // --- Fallbacks from email/domain ---
+  // Fallback logic for name
   if (!result.firstName && result.email.includes("@")) {
-    const { first, last } = guessNameFromEmail(result.email);
-    result.firstName ||= first;
-    result.lastName ||= last;
-    if (result.firstName || result.lastName) {
-      nameConfidence = Math.max(nameConfidence, 0.55);
+    const [local] = result.email.split("@");
+    const [first, last] = local.split(".");
+    if (first && last) {
+      result.firstName = capitalize(first);
+      result.lastName = capitalize(last);
     }
+    console.log("Fallback name from email - First Name:", result.firstName);
+    console.log("Fallback name from email - Last Name:", result.lastName);
   }
 
-  if (!result.company && (result.email || result.website)) {
-    const domain = (result.website || result.email.split("@")[1] || "").toLowerCase();
-    const base = domain.split("/")[0].replace(/^www\./, "");
-    const root = base.split(".")[0];
-    if (root && root.length >= 2 && !/\d{3,}/.test(root)) {
-      result.company = toTitleWords(root.replace(/[^a-zA-Z]+/g, " "));
-      companyConfidence = Math.max(companyConfidence, 0.55);
-    }
-  }
-
-  if (!result.website && result.email.includes("@")) {
-    result.website = result.email.split("@")[1].toLowerCase();
-    websiteConfidence = Math.max(websiteConfidence, 0.5);
-  }
-
-  // --- Collect leftover useful lines as notes ---
-  lines.forEach((line, i) => {
-    if (consumed[i]) return;
-    leftoverForNotes.push(line);  // Consider these as notes
-  });
-
-  if (leftoverForNotes.length) {
-    appendNote(result, `Other info:\n- ${leftoverForNotes.join("\n- ")}`);
-  }
-
-  // --- Final confidence ---
-  result.confidence = {
-    firstName: result.firstName ? nameConfidence : 0,
-    lastName: result.lastName ? nameConfidence : 0,
-    position: result.position ? positionConfidence : 0,
-    company: result.company ? companyConfidence : 0,
-    email: result.email ? emailConfidence : 0,
-    website: result.website ? websiteConfidence : 0,
-    phone: result.phone ? 0.8 : 0,
-  };
-
-  // Dedupe additionalPhones vs phone
-  result.additionalPhones = result.additionalPhones.filter((p) => p !== result.phone);
+  // Log the final result
+  console.log("Final parsed result:", result);
 
   return result;
 }
 
-// ---------------- helpers ----------------
-
-function splitCleanLines(text) {
-  return text
-    .split(/\r?\n/)
-    .map((l) => squeezeSpaces(l.replace(/\s+·\s+/g, " ")).trim())
-    .filter((l) => l.length > 0);
-}
-
-function squeezeSpaces(s) {
-  return s.replace(/\s+/g, " ");
-}
-
-function wordInLine(lineLc, needle) {
-  const n = needle.toLowerCase();
-  return new RegExp(`\\b${escapeRegex(n)}\\b`, "i").test(lineLc);
-}
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isMostlyCaps(s) {
-  const letters = s.replace(/[^A-Za-z]/g, "");
-  if (letters.length < 3) return false;
-  const caps = letters.replace(/[a-z]/g, "");
-  return caps.length / letters.length >= 0.7;
-}
-
-function tidyCompany(s) {
-  const cleaned = s.replace(/\s{2,}/g, " ").replace(/\s*[|•\-–—]\s*/g, " ");
-  if (isMostlyCaps(cleaned)) return cleaned.toUpperCase();
-  return cleaned;
-}
-
-function cleanWebsite(url) {
-  let u = url.trim();
-  u = u.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
-  u = u.replace(/[),.;:]+$/, "");
-  return u;
-}
-
-function stripLeadingLabels(line, labels) {
-  const lc = line.toLowerCase();
-  for (const label of labels) {
-    const re = new RegExp(`^\\s*${escapeRegex(label)}\\s*[:]?\\s*`, "i");
-    if (re.test(lc)) return line.replace(re, "");
-  }
-  return line;
-}
-
-function normalizePhone(raw) {
-  let s = raw.trim();
-  s = s.replace(/[^\d+]/g, "");  // Strip non-digit chars
-  return s.length >= 8 ? s : null;  // Validate length of phone number
-}
-
-function looksLikeFullName(line) {
-  if (/[,@|/\\]/.test(line)) return false;
-  if (/\d/.test(line)) return false;
-  const cleaned = line.replace(/\b(mr|ms|mrs|dr|prof)\.?/gi, "").trim();
-  const parts = cleaned.split(/\s+/);
-  if (parts.length < 2 || parts.length > 4) return false;
-
-  let good = 0;
-  for (const p of parts) {
-    if (/^[A-Z][a-z]+$/.test(p) || /^[A-Z]{2,}$/.test(p)) good++;
-  }
-  return good >= Math.max(2, parts.length - 1);
-}
-
-function splitName(parts) {
-  const norm = parts.map((p) => toTitleWord(p));
-  const first = norm[0] || "";
-  const last = norm.slice(1).join(" ") || "";
-  return { first, last };
-}
-
-function toTitleWord(word) {
+// 🛠️ Helpers
+function capitalize(word) {
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
-
-function toTitleWords(text) {
-  return text
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .map(toTitleWord)
-    .join(" ");
-}
-
-function guessNameFromEmail(email) {
-  const local = email.split("@")[0];
-  const [first, last] = local.split(".");
-  return { first, last: last || "" };
-}
-
-function appendNote(result, note) {
-  if (note.trim()) {
-    result.notes += (result.notes ? "\n" : "") + note;
-  }
-}
-
-module.exports = parseOCRText;
