@@ -18,9 +18,7 @@ function parseOCRText(rawText, opts = {}) {
     .replace(/\( ?0 ?\)/g, "")
     .replace(/[“”]/g, '"')
     .replace(/[’]/g, "'")
-    .replace(/_+\s*co\.th/gi, ".co.th")
-    .replace(/\.auedu\b/gi, ".au.edu")      // fix OCR
-    .replace(/^\s*[:•\-–]+/gm, "");         // strip leading junk
+    .replace(/_+\s*co\.th/gi, ".co.th");
 
   const lines = text
     .split(/\r?\n/)
@@ -64,7 +62,7 @@ function parseOCRText(rawText, opts = {}) {
     "Co\\.?","Co\\.,?\\s*Ltd\\.?","Ltd\\.?","LLC","Corp\\.?","Inc\\.?","Company",
     "Corporation","Limited","Bank","University","Institute","Faculty","Department",
     "Division","Group","Holdings?","Studio","Agency","Enterprises?","Solutions?",
-    "Services?","Chamber"
+    "Services?"
   ];
   const companyRegex = new RegExp(`\\b(${companyWords.join("|")})\\b`, "i");
 
@@ -72,7 +70,6 @@ function parseOCRText(rawText, opts = {}) {
   const nameLineRegex = new RegExp(
     `^(?:${honorifics.join("|")})?\\s*([A-Z][a-zA-Z'\\-]+(?:\\s+[A-Z][a-zA-Z'\\-]+){0,3})(?:\\s*\\(([^)]+)\\)|\\s*["“]([^"”]+)["”])?\\s*$`
   );
-  const nameWithDegree = /^([A-Z][a-zA-Z'\-]+(?:\s+[A-Z][a-zA-Z'\-]+){1,3})\s*(?:,\s*(?:Ph\.?D\.?|M\.?Sc\.?|B\.?Sc\.?|MBA|MEng|BEng|DPhil|EdD)\b.*)?$/;
 
   // ---------- 3) HELPERS ----------
   const seenPhones = new Set();
@@ -125,28 +122,6 @@ function parseOCRText(rawText, opts = {}) {
     return caps >= 2;
   }
 
-  function cleanUrl(u) {
-    try {
-      let url = u;
-      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-      const { hostname } = new URL(url);
-      return hostname.replace(/^www\./, "");
-    } catch {
-      return u.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
-    }
-  }
-
-  function isDeptOrFaculty(s) {
-    return /^\s*(Department|Faculty)\b/i.test(s);
-  }
-  function companyScore(s) {
-    let score = 0;
-    if (/\b(University|Bank|Co\.|Ltd\.|Inc\.|Corp\.|LLC|Company|Corporation|Chamber)\b/i.test(s)) score += 3;
-    if (!isDeptOrFaculty(s)) score += 1;
-    if (/[A-Z]{2,}/.test(s)) score += 1;
-    return score;
-  }
-
   // ---------- 4) PROCESS LINES ----------
   let bestName = { line: "", idx: -1, nickname: "" };
   let bestNameScore = -1;
@@ -166,15 +141,12 @@ function parseOCRText(rawText, opts = {}) {
       }
     }
 
-    // Phone (labeled, skip fax)
+    // Phone (labeled)
     const pl = line.match(phoneLine);
     if (pl) {
-      const isFax = /Fax/i.test(line);
       const raw = pl[1];
-      if (!isFax) {
-        const phones = raw.match(phoneLoose) || [];
-        phones.forEach(pushPhone);
-      }
+      const phones = raw.match(phoneLoose) || [];
+      phones.forEach(pushPhone);
       const ext = raw.match(/\b(?:ext\.?|x)\s*\.?:?\s*(\d{1,6})\b/i);
       if (ext && result.phone) {
         result.phone = `${result.phone};ext=${ext[1]}`;
@@ -191,13 +163,10 @@ function parseOCRText(rawText, opts = {}) {
     }
 
     // Website
-    if (websiteLoose.test(line) && !line.includes("@")) {
+    if (!result.website && websiteLoose.test(line) && !line.includes("@")) {
       const m = line.match(websiteLoose);
       if (m) {
-        const host = cleanUrl(m[1]);
-        if (!result.website || host.split(".").length > result.website.split(".").length) {
-          result.website = host;
-        }
+        result.website = m[1];
         console.log("🌐 Found website:", result.website);
         continue;
       }
@@ -206,44 +175,30 @@ function parseOCRText(rawText, opts = {}) {
     // Position
     if (!result.position && jobTitleRegex.test(line)) {
       result.position = line.replace(/\s{2,}/g, " ").trim();
-      // clean OCR garbage
-      result.position = result.position
-        .replace(/^[^A-Za-z]+/, "")
-        .replace(/[^A-Za-z, \-–&]/g, " ")
-        .replace(/\s{2,}/g, " ")
-        .replace(/\b(ft|sia)\b$/i, "")
-        .trim();
       titleIndex = i;
       console.log("💼 Found position:", result.position);
       continue;
     }
 
     // Company
-    if (!/@/.test(line) && !domainLike.test(line) && looksLikeCompany(line) && !isDeptOrFaculty(line)) {
-      if (!result.company || companyScore(line) >= companyScore(result.company)) {
-        result.company = line.replace(/\s{2,}/g, " ").trim();
-        console.log("🏢 Found/updated company:", result.company);
-      }
+    if (!result.company && companyRegex.test(line) && !/@/.test(line) && !domainLike.test(line)) {
+      result.company = line.replace(/\s{2,}/g, " ").trim();
+      console.log("🏢 Found company:", result.company);
       continue;
     }
 
     // Name
-    const cleanedStart = line.replace(/^[^\w]+/, "").replace(/\s+0\b$/, "");
+    const cleanedStart = line.replace(/^[^\w]+/, "");
     const nm = cleanedStart.match(nameLineRegex);
     if (nm) {
       const candidate = nm[1];
       const nick = nm[2] || nm[3] || "";
-      bestName = { line: candidate, idx: i, nickname: nick };
-      bestNameScore = 999;
+      const sc = 1;
+      if (sc > bestNameScore) {
+        bestNameScore = sc;
+        bestName = { line: candidate, idx: i, nickname: nick };
+      }
       console.log("👤 Name candidate:", candidate);
-      continue;
-    }
-    const md = cleanedStart.match(nameWithDegree);
-    if (md) {
-      const candidate = md[1];
-      bestName = { line: candidate, idx: i, nickname: "" };
-      bestNameScore = 999;
-      console.log("👤 Name via degree pattern:", candidate);
       continue;
     }
   }
