@@ -1,8 +1,27 @@
-function parseOCRText(text) {
+// parseOCRText.js
+function parseOCRText(rawText, opts = {}) {
+  const options = {
+    defaultCountry: opts.defaultCountry || "TH",
+    defaultCountryCode: opts.defaultCountryCode || "+66",
+    maxPhoneLen: 15,
+  };
+
+  // ---------- 1) PRE-CLEAN ----------
+  const text = (rawText || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")       // zero-width
+    .replace(/[|=]+/g, " ")                      // pipes, equals
+    .replace(/@\s+/g, "@")                       // "name@ domain" → "name@domain"
+    .replace(/\s+\.\s+/g, ".")                   // "domain . com" → "domain.com"
+    .replace(/https?:\s*\/\s*\//gi, "https://")  // "http: //"
+    .replace(/\( ?0 ?\)/g, "")                   // remove (0) in +66(0)
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/_+\s*co\.th/gi, ".co.th");         // "lhbank_ co.th" → "lhbank.co.th"
+
   const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
 
   const result = {
     firstName: "",
@@ -14,138 +33,261 @@ function parseOCRText(text) {
     email: "",
     company: "",
     website: "",
-    notes: "", // Leave blank for now, can store extra info
+    notes: "",
   };
 
-  const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,})/g; // Email extraction regex
-  const phoneRegex = /(\+?\d[\d\s\-().]{7,}\d)/g;
-  const websiteRegex = /(https?:\/\/)?(www\.)?([a-zA-Z0-9\-]+\.)+[a-z]{2,}/i;
-  const jobTitleRegex = /(Lecturer|Manager|Director|Engineer|Consultant|Officer|President|Founder|Intern|Chairperson)/i; // Job titles regex
-  const companyRegex = /(Co\.|Ltd\.|LLC|Corp|Inc|Company|Corporation|Limited)/i;
+  // ---------- 2) REGEXES ----------
+  const emailLike   = /([a-zA-Z0-9._%+\-]+)\s*@\s*([a-zA-Z0-9.\-]+\.[a-z]{2,})/i; // tolerant
+  const emailGlobal = /([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-z]{2,})/ig;         // strict
 
-  // Full Name Regex (handles title before or after the name)
-  const fullNameRegex = /^(Dr\.|Prof\.|Ph\.D\.|M\.S\.)?\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)(\s*(,?\s*(Dr\.|Ph\.D\.|M\.S\.|Prof\.))?)$/;
+  const phoneLine  = /(?:Tel\.?|Phone|Mobile|Mob\.?|Cell|Fax)\s*:?\s*(.+)/i;
+  const phoneLoose = /(\+?\d[\d\s\-().]{6,}\d)/g;
 
-  let possibleNameLine = "";
+  const websiteLoose = /\b((?:https?:\/\/)?(?:www\.)?[a-z0-9\-]+(?:\.[a-z0-9\-]+)+(?:\/[^\s]*)?)\b/i;
+  const domainLike   = /\b[a-z0-9\-]+\.[a-z]{2,}(?:\.[a-z]{2,})?\b/i;
 
-  // Helper function to clean lines from unwanted characters
-  function cleanLine(line) {
-    return line.replace(/[|=]/g, "").trim();
+  const jobTitleWords = [
+    "Lecturer","Professor","Manager","Director","Engineer","Consultant","Officer",
+    "President","Founder","Intern","Chairperson","Head","Senior","Vice President",
+    "Specialist","Analyst","Advisor","Coordinator","Representative","Executive",
+    "Assistant","Associate","Chief","CEO","CTO","CFO","COO","Dean","Researcher"
+  ];
+  const jobTitleRegex = new RegExp(`\\b(${jobTitleWords.join("|")})\\b`, "i");
+
+  const companyWords = [
+    "Co\\.?","Co\\.,?\\s*Ltd\\.?","Ltd\\.?","LLC","Corp\\.?","Inc\\.?","Company",
+    "Corporation","Limited","Bank","University","Institute","Faculty","Department",
+    "Division","Group","Holdings?","Studio","Agency","Enterprises?","Solutions?",
+    "Services?"
+  ];
+  const companyRegex = new RegExp(`\\b(${companyWords.join("|")})\\b`, "i");
+
+  const honorifics = ["Dr\\.","Prof\\.","Mr\\.","Mrs\\.","Ms\\.","Miss","M\\.S\\.","Ph\\.D\\."];
+  const nameLineRegex = new RegExp(
+    `^(?:${honorifics.join("|")})?\\s*([A-Z][a-zA-Z'\\-]+(?:\\s+[A-Z][a-zA-Z'\\-]+){0,3})(?:\\s*\\(([^)]+)\\)|\\s*["“]([^"”]+)["”])?\\s*$`
+  );
+
+  // ---------- 3) HELPERS ----------
+  const seenPhones = new Set();
+
+  function pushPhone(p) {
+    const norm = normalizePhone(p, options);
+    if (!norm) return;
+    if (!result.phone) {
+      result.phone = norm;
+      seenPhones.add(norm);
+    } else if (!seenPhones.has(norm)) {
+      result.additionalPhones.push(norm);
+      seenPhones.add(norm);
+    }
   }
+
+  function normalizePhone(p, { defaultCountryCode, maxPhoneLen }) {
+    if (!p) return "";
+    let s = String(p)
+      .replace(/[^\d+]/g, "")   // keep digits and +
+      .replace(/^00/, "+");     // 00 → +
+    if (!s) return "";
+
+    if (s.startsWith("+")) {
+      if (s.length > maxPhoneLen) s = s.slice(0, maxPhoneLen);
+      return s;
+    }
+    if (s.startsWith("0") && s.length >= 9 && s.length <= 11) {
+      return (defaultCountryCode + s.slice(1)).slice(0, maxPhoneLen);
+    }
+    if (s.length >= 8 && s.length <= maxPhoneLen) return s;
+    return "";
+  }
+
+  const cap = (w) => w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : "";
+  const capWords = (txt) => (txt || "")
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .map(cap)
+    .join(" ");
+
+  function looksLikeCompany(line) {
+    if (companyRegex.test(line)) return true;
+    const tokens = line.replace(/[^\w\s&.,-]/g, "").trim();
+    const manyCaps = /[A-Z]{2,}/.test(tokens) && tokens.length > 6;
+    const orgHints = /\b(Bank|University|Dept\.?|Department|Division|Institute|College|School|Hospital|Chamber)\b/i.test(tokens);
+    return manyCaps || orgHints;
+  }
+
+  function cleanUrl(u) {
+    try {
+      let url = u;
+      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+      const { hostname } = new URL(url);
+      return hostname.replace(/^www\./, "");
+    } catch {
+      return u.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+    }
+  }
+
+  const noiseForName = /(tel|mobile|fax|e-?mail|email|www|http|ext|bank|division|department|faculty|university)/i;
+  function isNameCandidate(s) {
+    const line = s.replace(/^[^\w]+|[^\w]+$/g, ""); // trim punctuation
+    if (noiseForName.test(line)) return false;
+    if (/\d/.test(line)) return false;
+    const tokens = line.split(/\s+/);
+    if (tokens.length < 2 || tokens.length > 4) return false;
+    const caps = tokens.filter(t => /^[A-Z][a-zA-Z'’-]+$/.test(t)).length;
+    return caps >= 2;
+  }
+
+  // ---------- 4) PASS 1: gather candidates ----------
+  let bestName = { line: "", idx: -1, nickname: "" };
+  let bestNameScore = -1;
+  let titleIndex = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    console.log("Processing line:", line);
 
-    // ✅ Extract emails
-    const emails = line.match(emailRegex);
-    if (emails && emails.length > 0) {
-      result.email = emails[0];
-      console.log("Found email:", result.email);
+    // Emails (first sensible one)
+    if (!result.email) {
+      const em = line.match(emailGlobal) || (emailLike.test(line) ? [line.replace(emailLike, "$1@$2")] : null);
+      if (em && em.length) {
+        result.email = em[0].replace(/\s+/g, "");
+        continue;
+      }
+    }
+
+    // Phones from labeled lines
+    const pl = line.match(phoneLine);
+    if (pl) {
+      const raw = pl[1];
+      const phones = raw.match(phoneLoose) || [];
+      phones.forEach(pushPhone);
+      // extension
+      const ext = raw.match(/\b(?:ext\.?|x)\s*\.?:?\s*(\d{1,6})\b/i);
+      if (ext && result.phone) result.phone = `${result.phone};ext=${ext[1]}`;
       continue;
     }
 
-    // ✅ Extract phone numbers
-    const phones = line.match(phoneRegex);
-    if (phones && phones.length > 0) {
-      phones.forEach((p) => {
-        const cleaned = p.replace(/[^\d+]/g, "");
-        if (cleaned.length >= 8 && cleaned.length <= 13) {
-          if (!result.phone) result.phone = cleaned;
-          else if (!result.additionalPhones.includes(cleaned)) {
-            result.additionalPhones.push(cleaned);
-          }
-        }
-      });
-      console.log("Found phone:", result.phone);
+    // Phones from unlabeled lines
+    const phones = line.match(phoneLoose);
+    if (phones && phones.length) {
+      phones.forEach(pushPhone);
       continue;
     }
 
-    // ✅ Extract website
-    if (!result.website && websiteRegex.test(line) && !line.includes("@")) {
-      result.website = line
-        .match(websiteRegex)[0]
-        .replace(/^https?:\/\//, "")
-        .replace(/^www\./, "");
-      console.log("Found website:", result.website);
-      continue;
+    // Website
+    if (!result.website && websiteLoose.test(line) && !line.includes("@")) {
+      const m = line.match(websiteLoose);
+      if (m) {
+        result.website = cleanUrl(m[1]);
+        continue;
+      }
     }
 
-    // ✅ Extract job position (full-time lecturer, etc.)
+    // Position / title
     if (!result.position && jobTitleRegex.test(line)) {
-      result.position = cleanLine(line);  // Clean extra symbols like "|"
-      console.log("Found position:", result.position);
+      if (!looksLikeCompany(line)) {
+        // keep substring starting from first title keyword
+        const m = line.match(/(Head|Senior|Vice\s*President|Manager|Director|Lecturer|Professor|Chief|Officer|Consultant|Executive|Representative).*$/i);
+        result.position = (m ? m[0] : line).replace(/\s{2,}/g, " ").trim();
+        titleIndex = i;
+        continue;
+      }
+    }
+
+    // Company (avoid obvious emails/domains)
+    if (!result.company && looksLikeCompany(line) && !/@/.test(line) && !domainLike.test(line)) {
+      result.company = line.replace(/\s{2,}/g, " ").trim();
       continue;
     }
 
-    // ✅ Extract company
-    if (!result.company && companyRegex.test(line)) {
-      result.company = cleanLine(line);  // Clean extra symbols
-      console.log("Found company:", result.company);
-      continue;
-    }
-
-    // ✅ Try matching a full name line with title
-    if (!result.firstName && fullNameRegex.test(line)) {
-      possibleNameLine = line;
-      console.log("Possible name line:", possibleNameLine);
+    // Name candidates (clean lines like ". Warren Lee")
+    const cleanedStart = line.replace(/^[^\w]+/, "");
+    const nm = cleanedStart.match(nameLineRegex);
+    if (nm) {
+      const candidate = nm[1];
+      const nick = nm[2] || nm[3] || "";
+      const sc = scoreNameLine(candidate, i);
+      if (sc > bestNameScore) {
+        bestNameScore = sc;
+        bestName = { line: candidate, idx: i, nickname: nick };
+      }
       continue;
     }
   }
 
-  // ✅ Use matched full name
-  if (possibleNameLine) {
-    const nameMatch = possibleNameLine.match(fullNameRegex);
-    if (nameMatch && nameMatch[2]) {
-      result.firstName = nameMatch[2].split(" ")[0];
-      result.lastName = nameMatch[2].split(" ").slice(1).join(" ");
-      console.log("Extracted first name:", result.firstName);
-      console.log("Extracted last name:", result.lastName);
+  // ---------- helper used above ----------
+  function scoreNameLine(line, idx) {
+    let score = 0;
+    if (idx <= 2) score += 3;
+    if (/^[A-Z][a-zA-Z'\-]+(?:\s+[A-Z][a-zA-Z'\-]+){0,2}$/.test(line)) score += 3;
+    if (jobTitleRegex.test(lines[idx + 1] || "")) score += 2;
+    if (!companyRegex.test(line) && !websiteLoose.test(line) && !emailGlobal.test(line)) score += 1;
+    return score;
+  }
+
+  // ---------- 5) SET NAME (prefer around title) ----------
+  if (!bestName.line) {
+    // try lines around the title
+    const around = [];
+    if (titleIndex > 0) around.push(titleIndex - 1);
+    if (titleIndex > 1) around.push(titleIndex - 2);
+    if (titleIndex >= 0 && titleIndex + 1 < lines.length) around.push(titleIndex + 1);
+
+    let chosen = "";
+    for (const idx of around) {
+      const ln = (lines[idx] || "").replace(/^[^\w]+/, "");
+      if (isNameCandidate(ln)) { chosen = ln; break; }
+    }
+    // fallback: first few lines
+    if (!chosen) {
+      for (let k = 0; k < Math.min(4, lines.length); k++) {
+        const ln = lines[k].replace(/^[^\w]+/, "");
+        if (isNameCandidate(ln)) { chosen = ln; break; }
+      }
+    }
+    if (chosen) bestName.line = chosen;
+  }
+
+  if (bestName.line) {
+    const parts = bestName.line.trim().split(/\s+/);
+    if (parts.length >= 1) result.firstName = parts[0];
+    if (parts.length >= 2) result.lastName  = parts.slice(1).join(" ");
+    if (bestName.nickname) {
+      result.nickname = bestName.nickname.replace(/^["“']|["”']$/g, "").trim();
     }
   }
 
-  // ✅ Fallback name from email local part
+  // ---------- 6) FALLBACKS ----------
   if (!result.firstName && result.email.includes("@")) {
     const [local] = result.email.split("@");
-    const [first, last] = local.split(".");
-    if (first && last) {
-      result.firstName = capitalize(first);
-      result.lastName = capitalize(last);
+    const segs = local.split(/[._-]+/).filter(Boolean);
+    if (segs.length >= 2) {
+      result.firstName = cap(segs[0]);
+      result.lastName  = capWords(segs.slice(1).join(" "));
+    } else if (segs.length === 1) {
+      result.firstName = cap(segs[0]);
     }
-    console.log("Fallback name from email - First Name:", result.firstName);
-    console.log("Fallback name from email - Last Name:", result.lastName);
   }
 
-  // ✅ Fallback company from domain
   if (!result.company && result.email.includes("@")) {
-    const domain = result.email.split("@")[1];
-    const name = domain.split(".")[0];
-    result.company = capitalizeWords(name.replace(/[^a-zA-Z ]/g, ""));
-    console.log("Fallback company from email domain:", result.company);
+    const domain = result.email.split("@")[1] || "";
+    const root = domain.replace(/^www\./i, "").split(".")[0] || "";
+    if (root) result.company = capWords(root.replace(/[^a-zA-Z ]/g, ""));
   }
 
-  // ✅ Fallback website from email domain
   if (!result.website && result.email.includes("@")) {
     result.website = result.email.split("@")[1];
-    console.log("Fallback website from email domain:", result.website);
   }
 
-  // Log the final result
-  console.log("Final parsed result:", result);
+  // ---------- 7) FINAL TOUCHES ----------
+  result.additionalPhones = result.additionalPhones
+    .filter(p => p && p !== result.phone)
+    .filter((p, i, arr) => arr.indexOf(p) === i);
+
+  if (result.firstName) result.firstName = capWords(result.firstName);
+  if (result.lastName)  result.lastName  = capWords(result.lastName);
+  if (result.company)   result.company   = result.company.replace(/\s{2,}/g, " ").trim();
 
   return result;
-}
-
-// 🛠️ Helpers
-function capitalize(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-}
-
-function capitalizeWords(text) {
-  return text
-    .split(/[\s._-]+/)
-    .map(capitalize)
-    .join(" ");
 }
 
 module.exports = parseOCRText;
