@@ -146,6 +146,14 @@ function parseOCRText(rawText, opts = {}) {
     if (/[A-Z]{2,}/.test(s)) score += 1;
     return score;
   }
+  function looksLikeCompany(line) {
+  if (companyRegex.test(line)) return true;
+  const tokens = line.replace(/[^\w\s&.,-]/g, "").trim();
+  const manyCaps = /[A-Z]{2,}/.test(tokens) && tokens.length > 6;
+  const orgHints = /\b(Bank|University|Dept\.?|Department|Division|Institute|College|School|Hospital|Chamber|Co\.|Ltd\.|Inc\.|Corp\.|LLC)\b/i.test(tokens);
+  return manyCaps || orgHints;
+}
+
 
   // ---------- 4) PROCESS LINES ----------
   let bestName = { line: "", idx: -1, nickname: "" };
