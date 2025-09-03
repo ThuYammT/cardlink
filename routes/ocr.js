@@ -39,25 +39,34 @@ router.post("/", async (req, res) => {
     const buffer = Buffer.from(await response.arrayBuffer());
 
     // 🧠 OCR with confidence filtering
-    const { data } = await Tesseract.recognize(buffer, "eng", {
-      tessedit_char_whitelist:
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
-    });
+    // 🧠 OCR with confidence filtering
+const { data } = await Tesseract.recognize(buffer, "eng", {
+  tessedit_char_whitelist:
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
+});
 
-    // Keep only words with confidence >= 70
-    const cleanText = data.words
-      .filter((w) => w.confidence >= 70)
-      .map((w) => w.text)
-      .join(" ");
+let cleanText = "";
 
-    // Apply additional normalization
-    const cleaned = normalizeOCRNoise(cleanText);
+// ✅ Use words array if available, else fallback to raw text
+if (Array.isArray(data.words) && data.words.length > 0) {
+  cleanText = data.words
+    .filter((w) => w.confidence >= 70)
+    .map((w) => w.text)
+    .join(" ");
+} else {
+  console.warn("⚠️ No word-level data found, falling back to raw text.");
+  cleanText = data.text || "";
+}
 
-    console.log("🧠 OCR raw text:", data.text.slice(0, 150));
-    console.log("🧼 OCR cleaned text:", cleaned.slice(0, 150));
+// Apply additional normalization
+const cleaned = normalizeOCRNoise(cleanText);
 
-    // Parse structured fields
-    const parsed = parseOCRText(cleaned);
+console.log("🧠 OCR raw text:", (data.text || "").slice(0, 150));
+console.log("🧼 OCR cleaned text:", cleaned.slice(0, 150));
+
+// Parse structured fields
+const parsed = parseOCRText(cleaned);
+
 
     // ✅ Attach Cloudinary image URL
     parsed.cardImageUrl = imageUrl;
