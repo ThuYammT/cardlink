@@ -1,4 +1,3 @@
-// parseOCRText.js
 function parseOCRText(rawText, opts = {}) {
   const options = {
     defaultCountry: opts.defaultCountry || "TH",
@@ -28,16 +27,16 @@ function parseOCRText(rawText, opts = {}) {
   console.log("📄 Split lines:", lines);
 
   const result = {
-    firstName: "",
-    lastName: "",
-    nickname: "",
-    position: "",
-    phone: "",
+    firstName: { value: "", confidence: 0 },
+    lastName: { value: "", confidence: 0 },
+    nickname: { value: "", confidence: 0 },
+    position: { value: "", confidence: 0 },
+    phone: { value: "", confidence: 0 },
     additionalPhones: [],
-    email: "",
-    company: "",
-    website: "",
-    notes: "",
+    email: { value: "", confidence: 0 },
+    company: { value: "", confidence: 0 },
+    website: { value: "", confidence: 0 },
+    notes: { value: "", confidence: 0 },
   };
 
   // ---------- 2) REGEXES ----------
@@ -59,7 +58,7 @@ function parseOCRText(rawText, opts = {}) {
   const jobTitleRegex = new RegExp(`\\b(${jobTitleWords.join("|")})\\b`, "i");
 
   const companyWords = [
-    "Co\\.?","Co\\.,?\\s*Ltd\\.?","Ltd\\.?","LLC","Corp\\.?","Inc\\.?","Company",
+    "Co\\.?","Ltd\\.?","LLC","Corp\\.?","Inc\\.?","Company",
     "Corporation","Limited","Bank","University","Institute","Faculty","Department",
     "Division","Group","Holdings?","Studio","Agency","Enterprises?","Solutions?",
     "Services?"
@@ -74,14 +73,14 @@ function parseOCRText(rawText, opts = {}) {
   // ---------- 3) HELPERS ----------
   const seenPhones = new Set();
 
-  function pushPhone(p) {
+  function pushPhone(p, confidence = 0.9) {
     const norm = normalizePhone(p, options);
     if (!norm) return;
-    if (!result.phone) {
-      result.phone = norm;
+    if (!result.phone.value) {
+      result.phone = { value: norm, confidence };
       seenPhones.add(norm);
     } else if (!seenPhones.has(norm)) {
-      result.additionalPhones.push(norm);
+      result.additionalPhones.push({ value: norm, confidence });
       seenPhones.add(norm);
     }
     console.log("📞 Found phone:", norm);
@@ -111,20 +110,8 @@ function parseOCRText(rawText, opts = {}) {
     .map(cap)
     .join(" ");
 
-  const noiseForName = /(tel|mobile|fax|e-?mail|email|www|http|ext|bank|division|department|faculty|university)/i;
-  function isNameCandidate(s) {
-    const line = s.replace(/^[^\w]+|[^\w]+$/g, "");
-    if (noiseForName.test(line)) return false;
-    if (/\d/.test(line)) return false;
-    const tokens = line.split(/\s+/);
-    if (tokens.length < 2 || tokens.length > 4) return false;
-    const caps = tokens.filter(t => /^[A-Z][a-zA-Z'’-]+$/.test(t)).length;
-    return caps >= 2;
-  }
-
   // ---------- 4) PROCESS LINES ----------
   let bestName = { line: "", idx: -1, nickname: "" };
-  let bestNameScore = -1;
   let titleIndex = -1;
 
   for (let i = 0; i < lines.length; i++) {
@@ -132,11 +119,11 @@ function parseOCRText(rawText, opts = {}) {
     console.log("➡️ Processing line:", line);
 
     // Email
-    if (!result.email) {
+    if (!result.email.value) {
       const em = line.match(emailGlobal) || (emailLike.test(line) ? [line.replace(emailLike, "$1@$2")] : null);
       if (em && em.length) {
-        result.email = em[0].replace(/\s+/g, "");
-        console.log("✉️ Found email:", result.email);
+        result.email = { value: em[0].replace(/\s+/g, ""), confidence: 0.95 };
+        console.log("✉️ Found email:", result.email.value);
         continue;
       }
     }
@@ -146,11 +133,10 @@ function parseOCRText(rawText, opts = {}) {
     if (pl) {
       const raw = pl[1];
       const phones = raw.match(phoneLoose) || [];
-      phones.forEach(pushPhone);
+      phones.forEach(p => pushPhone(p, 0.9));
       const ext = raw.match(/\b(?:ext\.?|x)\s*\.?:?\s*(\d{1,6})\b/i);
-      if (ext && result.phone) {
-        result.phone = `${result.phone};ext=${ext[1]}`;
-        console.log("📌 Added extension:", ext[1]);
+      if (ext && result.phone.value) {
+        result.phone.value = `${result.phone.value};ext=${ext[1]}`;
       }
       continue;
     }
@@ -158,47 +144,36 @@ function parseOCRText(rawText, opts = {}) {
     // Phone (loose)
     const phones = line.match(phoneLoose);
     if (phones && phones.length) {
-      phones.forEach(pushPhone);
+      phones.forEach(p => pushPhone(p, 0.7)); // lower confidence
       continue;
     }
 
     // Website
-    if (!result.website && websiteLoose.test(line) && !line.includes("@")) {
+    if (!result.website.value && websiteLoose.test(line) && !line.includes("@")) {
       const m = line.match(websiteLoose);
       if (m) {
-        result.website = m[1];
-        console.log("🌐 Found website:", result.website);
+        result.website = { value: m[1], confidence: 0.9 };
         continue;
       }
     }
 
     // Position
-    if (!result.position && jobTitleRegex.test(line)) {
-      result.position = line.replace(/\s{2,}/g, " ").trim();
+    if (!result.position.value && jobTitleRegex.test(line)) {
+      result.position = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.8 };
       titleIndex = i;
-      console.log("💼 Found position:", result.position);
       continue;
     }
 
     // Company
-    if (!result.company && companyRegex.test(line) && !/@/.test(line) && !domainLike.test(line)) {
-      result.company = line.replace(/\s{2,}/g, " ").trim();
-      console.log("🏢 Found company:", result.company);
+    if (!result.company.value && companyRegex.test(line) && !/@/.test(line) && !domainLike.test(line)) {
+      result.company = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.7 };
       continue;
     }
 
     // Name
-    const cleanedStart = line.replace(/^[^\w]+/, "");
-    const nm = cleanedStart.match(nameLineRegex);
+    const nm = line.match(nameLineRegex);
     if (nm) {
-      const candidate = nm[1];
-      const nick = nm[2] || nm[3] || "";
-      const sc = 1;
-      if (sc > bestNameScore) {
-        bestNameScore = sc;
-        bestName = { line: candidate, idx: i, nickname: nick };
-      }
-      console.log("👤 Name candidate:", candidate);
+      bestName = { line: nm[1], idx: i, nickname: nm[2] || nm[3] || "" };
       continue;
     }
   }
@@ -206,45 +181,41 @@ function parseOCRText(rawText, opts = {}) {
   // ---------- 5) FINAL NAME ----------
   if (bestName.line) {
     const parts = bestName.line.trim().split(/\s+/);
-    result.firstName = parts[0];
-    result.lastName  = parts.slice(1).join(" ");
-    if (bestName.nickname) result.nickname = bestName.nickname;
-    console.log("✅ Chosen name:", result.firstName, result.lastName);
+    result.firstName = { value: parts[0], confidence: 0.8 };
+    result.lastName  = { value: parts.slice(1).join(" "), confidence: 0.8 };
+    if (bestName.nickname) {
+      result.nickname = { value: bestName.nickname, confidence: 0.6 };
+    }
   }
 
   // ---------- 6) FALLBACKS ----------
-  if (!result.firstName && result.email.includes("@")) {
-    const [local] = result.email.split("@");
+  if (!result.firstName.value && result.email.value.includes("@")) {
+    const [local] = result.email.value.split("@");
     const segs = local.split(/[._-]+/).filter(Boolean);
     if (segs.length >= 2) {
-      result.firstName = cap(segs[0]);
-      result.lastName  = capWords(segs.slice(1).join(" "));
+      result.firstName = { value: cap(segs[0]), confidence: 0.5 };
+      result.lastName  = { value: capWords(segs.slice(1).join(" ")), confidence: 0.5 };
     } else if (segs.length === 1) {
-      result.firstName = cap(segs[0]);
+      result.firstName = { value: cap(segs[0]), confidence: 0.5 };
     }
-    console.log("🔄 Fallback name from email:", result.firstName, result.lastName);
   }
 
-  if (!result.company && result.email.includes("@")) {
-    const domain = result.email.split("@")[1] || "";
+  if (!result.company.value && result.email.value.includes("@")) {
+    const domain = result.email.value.split("@")[1] || "";
     const root = domain.replace(/^www\./i, "").split(".")[0] || "";
-    if (root) result.company = capWords(root.replace(/[^a-zA-Z ]/g, ""));
-    console.log("🔄 Fallback company:", result.company);
+    if (root) {
+      result.company = { value: capWords(root.replace(/[^a-zA-Z ]/g, "")), confidence: 0.5 };
+    }
   }
 
-  if (!result.website && result.email.includes("@")) {
-    result.website = result.email.split("@")[1];
-    console.log("🔄 Fallback website:", result.website);
+  if (!result.website.value && result.email.value.includes("@")) {
+    result.website = { value: result.email.value.split("@")[1], confidence: 0.4 };
   }
 
   // ---------- 7) CLEANUP ----------
   result.additionalPhones = result.additionalPhones
-    .filter(p => p && p !== result.phone)
-    .filter((p, i, arr) => arr.indexOf(p) === i);
-
-  if (result.firstName) result.firstName = capWords(result.firstName);
-  if (result.lastName)  result.lastName  = capWords(result.lastName);
-  if (result.company)   result.company   = result.company.replace(/\s{2,}/g, " ").trim();
+    .filter(p => p.value && p.value !== result.phone.value)
+    .filter((p, i, arr) => arr.findIndex(x => x.value === p.value) === i);
 
   console.log("🎯 Final parsed result:", result);
   return result;

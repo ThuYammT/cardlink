@@ -13,6 +13,17 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// 🔧 Helper: normalize common OCR mistakes
+function normalizeOCRNoise(text) {
+  return (text || "")
+    .replace(/[\u2013\u2014]/g, "-")     // normalize dashes
+    .replace(/[|=]+/g, " ")              // remove pipes/equals
+    .replace(/Il/g, "II")                // fix I vs l confusion
+    .replace(/\b0([89]\d{8})\b/, "+66$1")// auto-fix Thai mobile numbers
+    .replace(/\s{2,}/g, " ")             // collapse multiple spaces
+    .trim();
+}
+
 router.post("/", async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -27,14 +38,26 @@ router.post("/", async (req, res) => {
     }
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    // 🧠 OCR
-    const { data: { text } } = await Tesseract.recognize(buffer, "eng", {
+    // 🧠 OCR with confidence filtering
+    const { data } = await Tesseract.recognize(buffer, "eng", {
       tessedit_char_whitelist:
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
     });
 
-    console.log("🧠 OCR text:", text.slice(0, 150));
-    const parsed = parseOCRText(text);
+    // Keep only words with confidence >= 70
+    const cleanText = data.words
+      .filter((w) => w.confidence >= 70)
+      .map((w) => w.text)
+      .join(" ");
+
+    // Apply additional normalization
+    const cleaned = normalizeOCRNoise(cleanText);
+
+    console.log("🧠 OCR raw text:", data.text.slice(0, 150));
+    console.log("🧼 OCR cleaned text:", cleaned.slice(0, 150));
+
+    // Parse structured fields
+    const parsed = parseOCRText(cleaned);
 
     // ✅ Attach Cloudinary image URL
     parsed.cardImageUrl = imageUrl;
@@ -42,10 +65,11 @@ router.post("/", async (req, res) => {
     res.json(parsed);
   } catch (err) {
     console.error("❌ OCR error:", err);
-    res.status(500).json({ message: "OCR processing failed", detail: err.message });
+    res.status(500).json({
+      message: "OCR processing failed",
+      detail: err.message,
+    });
   }
 });
-
-
 
 module.exports = router;
