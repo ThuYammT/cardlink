@@ -3,7 +3,7 @@ const Tesseract = require("tesseract.js");
 const sharp = require("sharp");
 const parseOCRText = require("../utils/parseOCRText");
 const cloudinary = require("cloudinary").v2;
-const runSpaCyNER = require("../utils/ner"); // NEW
+const runSpaCyNER = require("../utils/ner");
 
 const router = express.Router();
 
@@ -13,6 +13,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// OCR preprocessing with Sharp
+async function preprocessImage(buffer) {
+  console.log("🖼️ Preprocessing image with Sharp...");
+  return sharp(buffer).grayscale().normalize().sharpen().toBuffer();
+}
+
+// Noise cleaner (extra filter)
 function normalizeOCRNoise(text) {
   return (text || "")
     .replace(/[\u2013\u2014]/g, "-")
@@ -23,6 +30,19 @@ function normalizeOCRNoise(text) {
     .trim();
 }
 
+function filterNoiseLines(text) {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        l.length > 2 &&
+        !/^[A-Z]{2,3}$/.test(l) && // remove short all-caps junk like TE, EE
+        !/^[^a-zA-Z0-9]+$/.test(l) // remove lines that are only symbols
+    )
+    .join("\n");
+}
+
 router.post("/", async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -30,13 +50,19 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Missing imageUrl" });
     }
 
+    console.log("📥 Fetching image:", imageUrl);
     const response = await fetch(imageUrl);
     if (!response.ok) {
       return res.status(400).json({ message: "Failed to fetch image" });
     }
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    const { data } = await Tesseract.recognize(buffer, "eng", {
+    // Preprocess with Sharp
+    const processedBuffer = await preprocessImage(buffer);
+
+    // Run OCR
+    console.log("🔠 Running OCR...");
+    const { data } = await Tesseract.recognize(processedBuffer, "eng", {
       tessedit_char_whitelist:
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.:,+-()& ",
     });
@@ -52,35 +78,50 @@ router.post("/", async (req, res) => {
       cleanText = data.text || "";
     }
 
-    const cleaned = normalizeOCRNoise(cleanText);
+    // Normalize & filter noise
+    let cleaned = normalizeOCRNoise(cleanText);
+    cleaned = filterNoiseLines(cleaned);
 
-    console.log("🧠 OCR raw text:", (data.text || "").slice(0, 150));
-    console.log("🧼 OCR cleaned text:", cleaned.slice(0, 150));
+    console.log("🧠 OCR raw text (first 200 chars):", (data.text || "").slice(0, 200));
+    console.log("🧼 OCR cleaned text (first 200 chars):", cleaned.slice(0, 200));
 
+    // Regex parser
+    console.log("📝 Running regex parser...");
     const parsed = parseOCRText(cleaned);
 
-    // 🔍 Run spaCy NER and merge results
+    // NER extraction
+    console.log("🤖 Calling spaCy NER...");
     const entities = await runSpaCyNER(cleaned);
     console.log("🔍 NER entities:", entities);
 
+    // Merge results
+    console.log("⚡ Merging NER with regex...");
     entities.forEach((e) => {
-  if (e.label === "PERSON") {
-    if (!parsed.firstName.value || parsed.firstName.confidence < 0.9) {
-      const parts = e.text.split(" ");
-      parsed.firstName = { value: parts[0], confidence: 0.95 };
-      parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.95 };
-    }
-  }
+      if (e.label === "PERSON") {
+        const parts = e.text.split(/\s+/);
+        if (parts.length >= 2) {
+          parsed.firstName = { value: parts[0], confidence: 0.95 };
+          parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.95 };
+          console.log("✅ PERSON override:", parsed.firstName, parsed.lastName);
+        }
+      }
 
-  if (e.label === "ORG") {
-    if (!parsed.company.value || parsed.company.confidence < 0.9) {
-      parsed.company = { value: e.text, confidence: 0.9 };
-    }
-  }
-});
+      if (e.label === "ORG") {
+        if (!parsed.company.value || parsed.company.confidence < 0.9) {
+          parsed.company = { value: e.text, confidence: 0.95 };
+          console.log("✅ ORG override:", parsed.company);
+        }
+      }
 
+      if (e.label === "TITLE") {
+        parsed.position = { value: e.text, confidence: 0.9 };
+        console.log("✅ TITLE override:", parsed.position);
+      }
+    });
 
     parsed.cardImageUrl = imageUrl;
+
+    console.log("🎯 Final parsed result:", JSON.stringify(parsed, null, 2));
     res.json(parsed);
   } catch (err) {
     console.error("❌ OCR error:", err);
