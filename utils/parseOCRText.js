@@ -79,11 +79,12 @@ function parseOCRText(rawText, opts = {}) {
     if (!result.phone.value) {
       result.phone = { value: norm, confidence };
       seenPhones.add(norm);
+      console.log("📞 Main phone:", norm);
     } else if (!seenPhones.has(norm)) {
       result.additionalPhones.push({ value: norm, confidence });
       seenPhones.add(norm);
+      console.log("📞 Additional phone:", norm);
     }
-    console.log("📞 Found phone:", norm);
   }
 
   function normalizePhone(p, { defaultCountryCode, maxPhoneLen }) {
@@ -128,16 +129,17 @@ function parseOCRText(rawText, opts = {}) {
       }
     }
 
-    // Phone (labeled)
+    // Phone (labeled) — strip extensions and DO NOT include ext in output
     const pl = line.match(phoneLine);
     if (pl) {
-      const raw = pl[1];
+      let raw = pl[1];
+
+      // Remove extension segments entirely so they don't leak into any phone field
+      // Examples matched: "ext 123", "ext. 123", "x 123", "x.123"
+      raw = raw.replace(/\b(?:ext\.?|x)\s*\.?:?\s*\d{1,6}\b/ig, "").trim();
+
       const phones = raw.match(phoneLoose) || [];
       phones.forEach(p => pushPhone(p, 0.9));
-      const ext = raw.match(/\b(?:ext\.?|x)\s*\.?:?\s*(\d{1,6})\b/i);
-      if (ext && result.phone.value) {
-        result.phone.value = `${result.phone.value};ext=${ext[1]}`;
-      }
       continue;
     }
 
@@ -148,11 +150,14 @@ function parseOCRText(rawText, opts = {}) {
       continue;
     }
 
-    // Website
+    // Website (normalize to https:// and lowercase)
     if (!result.website.value && websiteLoose.test(line) && !line.includes("@")) {
       const m = line.match(websiteLoose);
       if (m) {
-        result.website = { value: m[1], confidence: 0.9 };
+        let url = m[1];
+        if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+        result.website = { value: url.toLowerCase(), confidence: 0.9 };
+        console.log("🌐 Found website:", result.website.value);
         continue;
       }
     }
@@ -161,24 +166,27 @@ function parseOCRText(rawText, opts = {}) {
     if (!result.position.value && jobTitleRegex.test(line)) {
       result.position = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.8 };
       titleIndex = i;
+      console.log("💼 Found position:", result.position.value);
       continue;
     }
 
-    // Company
+    // Company (fallback) — only if looks like a company and not an email/domain line
     if (!result.company.value && companyRegex.test(line) && !/@/.test(line) && !domainLike.test(line)) {
       result.company = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.7 };
+      console.log("🏢 Found company (fallback):", result.company.value);
       continue;
     }
 
-    // Name
+    // Name (fallback candidate only; NER will override if present)
     const nm = line.match(nameLineRegex);
     if (nm) {
       bestName = { line: nm[1], idx: i, nickname: nm[2] || nm[3] || "" };
+      console.log("👤 Found name candidate (fallback):", bestName.line);
       continue;
     }
   }
 
-  // ---------- 5) FINAL NAME ----------
+  // ---------- 5) FINAL NAME (fallback only) ----------
   if (bestName.line) {
     const parts = bestName.line.trim().split(/\s+/);
     result.firstName = { value: parts[0], confidence: 0.8 };
@@ -186,6 +194,7 @@ function parseOCRText(rawText, opts = {}) {
     if (bestName.nickname) {
       result.nickname = { value: bestName.nickname, confidence: 0.6 };
     }
+    console.log("✅ Selected name (fallback):", result.firstName.value, result.lastName.value);
   }
 
   // ---------- 6) FALLBACKS ----------
@@ -195,8 +204,10 @@ function parseOCRText(rawText, opts = {}) {
     if (segs.length >= 2) {
       result.firstName = { value: cap(segs[0]), confidence: 0.5 };
       result.lastName  = { value: capWords(segs.slice(1).join(" ")), confidence: 0.5 };
+      console.log("⚠️ Name fallback from email:", result.firstName, result.lastName);
     } else if (segs.length === 1) {
       result.firstName = { value: cap(segs[0]), confidence: 0.5 };
+      console.log("⚠️ Name fallback from email local part:", result.firstName);
     }
   }
 
@@ -205,17 +216,40 @@ function parseOCRText(rawText, opts = {}) {
     const root = domain.replace(/^www\./i, "").split(".")[0] || "";
     if (root) {
       result.company = { value: capWords(root.replace(/[^a-zA-Z ]/g, "")), confidence: 0.5 };
+      console.log("⚠️ Company fallback from email domain:", result.company.value);
     }
   }
 
   if (!result.website.value && result.email.value.includes("@")) {
-    result.website = { value: result.email.value.split("@")[1], confidence: 0.4 };
+    const domain = result.email.value.split("@")[1];
+    if (domain) {
+      result.website = { value: ("https://" + domain).toLowerCase(), confidence: 0.4 };
+      console.log("⚠️ Website fallback from email domain:", result.website.value);
+    }
   }
 
   // ---------- 7) CLEANUP ----------
+  // drop very short / suspicious names & company (NER is the authority anyway)
+  if (result.firstName.value && result.firstName.value.length <= 2) {
+    console.log("⚠️ Dropping suspicious short firstName:", result.firstName.value);
+    result.firstName = { value: "", confidence: 0 };
+  }
+  if (result.company.value && result.company.value.length <= 2) {
+    console.log("⚠️ Dropping suspicious short company:", result.company.value);
+    result.company = { value: "", confidence: 0 };
+  }
+
+  // dedupe phones; ensure they look long enough (>= 8 digits)
+  const digitsLen = s => (s || "").replace(/\D/g, "").length;
   result.additionalPhones = result.additionalPhones
-    .filter(p => p.value && p.value !== result.phone.value)
+    .filter(p => p.value && p.value !== result.phone.value && digitsLen(p.value) >= 8)
     .filter((p, i, arr) => arr.findIndex(x => x.value === p.value) === i);
+
+  // If main phone too short, clear it
+  if (result.phone.value && digitsLen(result.phone.value) < 8) {
+    console.log("⚠️ Dropping suspicious short main phone:", result.phone.value);
+    result.phone = { value: "", confidence: 0 };
+  }
 
   console.log("🎯 Final parsed result:", result);
   return result;
