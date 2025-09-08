@@ -27,9 +27,9 @@ function parseOCRText(rawText, opts = {}) {
   console.log("📄 Split lines:", lines);
 
   const result = {
-    firstName: { value: "", confidence: 0 },
-    lastName: { value: "", confidence: 0 },
-    nickname: { value: "", confidence: 0 },
+    firstName: { value: "", confidence: 0 }, // NER will handle
+    lastName: { value: "", confidence: 0 },  // NER will handle
+    nickname: { value: "", confidence: 0 },  // NER will handle
     position: { value: "", confidence: 0 },
     phone: { value: "", confidence: 0 },
     additionalPhones: [],
@@ -65,11 +65,6 @@ function parseOCRText(rawText, opts = {}) {
   ];
   const companyRegex = new RegExp(`\\b(${companyWords.join("|")})\\b`, "i");
 
-  const honorifics = ["Dr\\.","Prof\\.","Mr\\.","Mrs\\.","Ms\\.","Miss","M\\.S\\.","Ph\\.D\\."];
-  const nameLineRegex = new RegExp(
-    `^(?:${honorifics.join("|")})?\\s*([A-Z][a-zA-Z'\\-]+(?:\\s+[A-Z][a-zA-Z'\\-]+){0,3})(?:\\s*\\(([^)]+)\\)|\\s*["“]([^"”]+)["”])?\\s*$`
-  );
-
   // ---------- 3) HELPERS ----------
   const seenPhones = new Set();
 
@@ -104,17 +99,7 @@ function parseOCRText(rawText, opts = {}) {
     return "";
   }
 
-  const cap = (w) => w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : "";
-  const capWords = (txt) => (txt || "")
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .map(cap)
-    .join(" ");
-
   // ---------- 4) PROCESS LINES ----------
-  let bestName = { line: "", idx: -1, nickname: "" };
-  let titleIndex = -1;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     console.log("➡️ Processing line:", line);
@@ -129,15 +114,11 @@ function parseOCRText(rawText, opts = {}) {
       }
     }
 
-    // Phone (labeled) — strip extensions and DO NOT include ext in output
+    // Phone (labeled) — strip extensions
     const pl = line.match(phoneLine);
     if (pl) {
       let raw = pl[1];
-
-      // Remove extension segments entirely so they don't leak into any phone field
-      // Examples matched: "ext 123", "ext. 123", "x 123", "x.123"
       raw = raw.replace(/\b(?:ext\.?|x)\s*\.?:?\s*\d{1,6}\b/ig, "").trim();
-
       const phones = raw.match(phoneLoose) || [];
       phones.forEach(p => pushPhone(p, 0.9));
       continue;
@@ -146,11 +127,11 @@ function parseOCRText(rawText, opts = {}) {
     // Phone (loose)
     const phones = line.match(phoneLoose);
     if (phones && phones.length) {
-      phones.forEach(p => pushPhone(p, 0.7)); // lower confidence
+      phones.forEach(p => pushPhone(p, 0.7));
       continue;
     }
 
-    // Website (normalize to https:// and lowercase)
+    // Website
     if (!result.website.value && websiteLoose.test(line) && !line.includes("@")) {
       const m = line.match(websiteLoose);
       if (m) {
@@ -165,57 +146,24 @@ function parseOCRText(rawText, opts = {}) {
     // Position
     if (!result.position.value && jobTitleRegex.test(line)) {
       result.position = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.8 };
-      titleIndex = i;
       console.log("💼 Found position:", result.position.value);
       continue;
     }
 
-    // Company (fallback) — only if looks like a company and not an email/domain line
+    // Company
     if (!result.company.value && companyRegex.test(line) && !/@/.test(line) && !domainLike.test(line)) {
       result.company = { value: line.replace(/\s{2,}/g, " ").trim(), confidence: 0.7 };
       console.log("🏢 Found company (fallback):", result.company.value);
       continue;
     }
-
-    // Name (fallback candidate only; NER will override if present)
-    const nm = line.match(nameLineRegex);
-    if (nm) {
-      bestName = { line: nm[1], idx: i, nickname: nm[2] || nm[3] || "" };
-      console.log("👤 Found name candidate (fallback):", bestName.line);
-      continue;
-    }
   }
 
-  // ---------- 5) FINAL NAME (fallback only) ----------
-  if (bestName.line) {
-    const parts = bestName.line.trim().split(/\s+/);
-    result.firstName = { value: parts[0], confidence: 0.8 };
-    result.lastName  = { value: parts.slice(1).join(" "), confidence: 0.8 };
-    if (bestName.nickname) {
-      result.nickname = { value: bestName.nickname, confidence: 0.6 };
-    }
-    console.log("✅ Selected name (fallback):", result.firstName.value, result.lastName.value);
-  }
-
-  // ---------- 6) FALLBACKS ----------
-  if (!result.firstName.value && result.email.value.includes("@")) {
-    const [local] = result.email.value.split("@");
-    const segs = local.split(/[._-]+/).filter(Boolean);
-    if (segs.length >= 2) {
-      result.firstName = { value: cap(segs[0]), confidence: 0.5 };
-      result.lastName  = { value: capWords(segs.slice(1).join(" ")), confidence: 0.5 };
-      console.log("⚠️ Name fallback from email:", result.firstName, result.lastName);
-    } else if (segs.length === 1) {
-      result.firstName = { value: cap(segs[0]), confidence: 0.5 };
-      console.log("⚠️ Name fallback from email local part:", result.firstName);
-    }
-  }
-
+  // ---------- 5) FALLBACKS ----------
   if (!result.company.value && result.email.value.includes("@")) {
     const domain = result.email.value.split("@")[1] || "";
     const root = domain.replace(/^www\./i, "").split(".")[0] || "";
     if (root) {
-      result.company = { value: capWords(root.replace(/[^a-zA-Z ]/g, "")), confidence: 0.5 };
+      result.company = { value: root.replace(/[^a-zA-Z ]/g, ""), confidence: 0.5 };
       console.log("⚠️ Company fallback from email domain:", result.company.value);
     }
   }
@@ -228,30 +176,18 @@ function parseOCRText(rawText, opts = {}) {
     }
   }
 
-  // ---------- 7) CLEANUP ----------
-  // drop very short / suspicious names & company (NER is the authority anyway)
-  if (result.firstName.value && result.firstName.value.length <= 2) {
-    console.log("⚠️ Dropping suspicious short firstName:", result.firstName.value);
-    result.firstName = { value: "", confidence: 0 };
-  }
-  if (result.company.value && result.company.value.length <= 2) {
-    console.log("⚠️ Dropping suspicious short company:", result.company.value);
-    result.company = { value: "", confidence: 0 };
-  }
-
-  // dedupe phones; ensure they look long enough (>= 8 digits)
+  // ---------- 6) CLEANUP ----------
   const digitsLen = s => (s || "").replace(/\D/g, "").length;
   result.additionalPhones = result.additionalPhones
     .filter(p => p.value && p.value !== result.phone.value && digitsLen(p.value) >= 8)
     .filter((p, i, arr) => arr.findIndex(x => x.value === p.value) === i);
 
-  // If main phone too short, clear it
   if (result.phone.value && digitsLen(result.phone.value) < 8) {
     console.log("⚠️ Dropping suspicious short main phone:", result.phone.value);
     result.phone = { value: "", confidence: 0 };
   }
 
-  console.log("🎯 Final parsed result:", result);
+  console.log("🎯 Final parsed result (names left blank for NER):", result);
   return result;
 }
 
