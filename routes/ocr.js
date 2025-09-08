@@ -13,7 +13,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Preprocess image with Sharp (improve OCR accuracy)
+// Preprocess image with Sharp
 async function preprocessImage(buffer) {
   console.log("🖼️ Preprocessing image with Sharp...");
   return sharp(buffer).grayscale().normalize().sharpen().toBuffer();
@@ -44,10 +44,10 @@ router.post("/", async (req, res) => {
     }
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    // Preprocess for better OCR
+    // Preprocess
     const processedBuffer = await preprocessImage(buffer);
 
-    // Run OCR
+    // OCR
     console.log("🔠 Running OCR...");
     const { data } = await Tesseract.recognize(processedBuffer, "eng", {
       tessedit_char_whitelist:
@@ -65,40 +65,44 @@ router.post("/", async (req, res) => {
       cleanText = data.text || "";
     }
 
-    // Normalize cleaned OCR text
     const cleaned = normalizeOCRNoise(cleanText);
 
     console.log("🧠 OCR raw text (first 200 chars):", (data.text || "").slice(0, 200));
     console.log("🧼 OCR cleaned text (first 200 chars):", cleaned.slice(0, 200));
 
-    // Step 1: Regex parsing (phones, emails, company, website, etc.)
+    // Step 1: regex parser (phones, emails, etc.)
     console.log("📝 Running regex parser...");
     const parsed = parseOCRText(cleaned);
 
-    // Step 2: Named Entity Recognition
+    // Add fullName field
+    parsed.fullName = { value: "", confidence: 0 };
+
+    // Step 2: call spaCy NER
     console.log("🤖 Calling spaCy NER...");
     const entities = await runSpaCyNER(cleaned);
     console.log("🔍 NER entities:", entities);
 
-    // Step 3: Merge NER with regex results
+    // Step 3: merge
     console.log("⚡ Merging NER with regex results...");
 
-    entities.forEach((e) => {
-      if (e.label === "PERSON") {
-      // Only set name if not already filled
-      if (!parsed.firstName.value && !parsed.lastName.value) {
+    let nameSet = false;
+
+    for (const e of entities) {
+      if (!nameSet && (e.label === "FULLNAME" || e.label === "PERSON")) {
+        parsed.fullName = { value: e.text, confidence: 0.95 };
+        console.log("✅ FULLNAME chosen:", parsed.fullName.value);
+
+        // Optional split
         const parts = e.text.trim().split(/\s+/);
         if (parts.length >= 2) {
-          parsed.firstName = { value: parts[0], confidence: 0.95 };
-          parsed.lastName  = { value: parts.slice(1).join(" "), confidence: 0.95 };
+          parsed.firstName = { value: parts[0], confidence: 0.9 };
+          parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
         } else {
-          parsed.firstName = { value: e.text.trim(), confidence: 0.95 };
+          parsed.firstName = { value: e.text.trim(), confidence: 0.9 };
         }
-        console.log("✅ PERSON selected:", parsed.firstName, parsed.lastName);
-      } else {
-        console.log("⏭️ Skipping extra PERSON entity:", e.text);
+
+        nameSet = true;
       }
-    }
 
       if (e.label === "ORG") {
         parsed.company = { value: e.text, confidence: 0.95 };
@@ -109,19 +113,15 @@ router.post("/", async (req, res) => {
         parsed.position = { value: e.text, confidence: 0.9 };
         console.log("✅ TITLE override:", parsed.position);
       }
-    });
+    }
 
-    // Attach image URL
     parsed.cardImageUrl = imageUrl;
 
     console.log("🎯 Final parsed result:", JSON.stringify(parsed, null, 2));
     res.json(parsed);
   } catch (err) {
     console.error("❌ OCR error:", err);
-    res.status(500).json({
-      message: "OCR processing failed",
-      detail: err.message,
-    });
+    res.status(500).json({ message: "OCR processing failed", detail: err.message });
   }
 });
 
