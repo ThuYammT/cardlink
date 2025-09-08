@@ -85,30 +85,42 @@ router.post("/", async (req, res) => {
     // Step 3: merge
     console.log("⚡ Merging NER with regex results...");
 
-    let nameSet = false;
+    // Pick best PERSON/FULLNAME
+    const nameCandidates = entities.filter(e => e.label === "FULLNAME" || e.label === "PERSON");
 
-    for (const e of entities) {
-      if (!nameSet && (e.label === "FULLNAME" || e.label === "PERSON")) {
-        parsed.fullName = { value: e.text, confidence: 0.95 };
-        console.log("✅ FULLNAME chosen:", parsed.fullName.value);
+    if (nameCandidates.length > 0) {
+      // Scoring function
+      const score = (text) => {
+        const parts = text.trim().split(/\s+/);
+        const longTokens = parts.filter(p => p.length >= 3).length;
+        const vowels = (text.match(/[aeiouAEIOU]/g) || []).length;
+        return (longTokens * 2) + parts.length + vowels * 0.5;
+      };
 
-        // Optional split
-        const parts = e.text.trim().split(/\s+/);
-        if (parts.length >= 2) {
-          parsed.firstName = { value: parts[0], confidence: 0.9 };
-          parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
-        } else {
-          parsed.firstName = { value: e.text.trim(), confidence: 0.9 };
-        }
+      const best = nameCandidates.reduce((a, b) => 
+        score(b.text) > score(a.text) ? b : a
+      );
 
-        nameSet = true;
+      parsed.fullName = { value: best.text.trim(), confidence: 0.95 };
+      console.log("✅ FULLNAME chosen:", parsed.fullName.value);
+
+      const parts = best.text.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        parsed.firstName = { value: parts[0], confidence: 0.9 };
+        parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
+      } else {
+        parsed.firstName = { value: best.text.trim(), confidence: 0.9 };
       }
+    } else {
+      console.log("⚠️ No PERSON/FULLNAME entities found.");
+    }
 
+    // ORG and TITLE overrides
+    for (const e of entities) {
       if (e.label === "ORG") {
         parsed.company = { value: e.text, confidence: 0.95 };
         console.log("✅ ORG override:", parsed.company);
       }
-
       if (e.label === "TITLE") {
         parsed.position = { value: e.text, confidence: 0.9 };
         console.log("✅ TITLE override:", parsed.position);
