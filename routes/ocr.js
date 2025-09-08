@@ -85,15 +85,20 @@ router.post("/", async (req, res) => {
 
     entities.forEach((e) => {
       if (e.label === "PERSON") {
-        const parts = e.text.split(/\s+/);
+      // Only set name if not already filled
+      if (!parsed.firstName.value && !parsed.lastName.value) {
+        const parts = e.text.trim().split(/\s+/);
         if (parts.length >= 2) {
           parsed.firstName = { value: parts[0], confidence: 0.95 };
-          parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.95 };
+          parsed.lastName  = { value: parts.slice(1).join(" "), confidence: 0.95 };
         } else {
-          parsed.firstName = { value: e.text, confidence: 0.95 };
+          parsed.firstName = { value: e.text.trim(), confidence: 0.95 };
         }
-        console.log("✅ PERSON override:", parsed.firstName, parsed.lastName);
+        console.log("✅ PERSON selected:", parsed.firstName, parsed.lastName);
+      } else {
+        console.log("⏭️ Skipping extra PERSON entity:", e.text);
       }
+    }
 
       if (e.label === "ORG") {
         parsed.company = { value: e.text, confidence: 0.95 };
