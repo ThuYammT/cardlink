@@ -70,12 +70,9 @@ router.post("/", async (req, res) => {
     console.log("🧠 OCR raw text (first 200 chars):", (data.text || "").slice(0, 200));
     console.log("🧼 OCR cleaned text (first 200 chars):", cleaned.slice(0, 200));
 
-    // Step 1: regex parser (phones, emails, etc.)
+    // Step 1: regex parser
     console.log("📝 Running regex parser...");
     const parsed = parseOCRText(cleaned);
-
-    // Add fullName field
-    parsed.fullName = { value: "", confidence: 0 };
 
     // Step 2: call spaCy NER
     console.log("🤖 Calling spaCy NER...");
@@ -85,24 +82,14 @@ router.post("/", async (req, res) => {
     // Step 3: merge
     console.log("⚡ Merging NER with regex results...");
 
-    // Pick best PERSON/FULLNAME
-    const nameCandidates = entities.filter(e => e.label === "FULLNAME" || e.label === "PERSON");
-
-    if (nameCandidates.length > 0) {
-      // Scoring function
-      const score = (text) => {
-        const parts = text.trim().split(/\s+/);
-        const longTokens = parts.filter(p => p.length >= 3).length;
-        const vowels = (text.match(/[aeiouAEIOU]/g) || []).length;
-        return (longTokens * 2) + parts.length + vowels * 0.5;
-      };
-
-      const best = nameCandidates.reduce((a, b) => 
-        score(b.text) > score(a.text) ? b : a
+    // PERSON detection
+    const personEntities = entities.filter((e) => e.label === "PERSON");
+    if (personEntities.length > 0) {
+      const best = personEntities.reduce((a, b) =>
+        b.text.split(/\s+/).length > a.text.split(/\s+/).length ? b : a
       );
-
       parsed.fullName = { value: best.text.trim(), confidence: 0.95 };
-      console.log("✅ FULLNAME chosen:", parsed.fullName.value);
+      console.log("✅ PERSON chosen:", parsed.fullName.value);
 
       const parts = best.text.trim().split(/\s+/);
       if (parts.length >= 2) {
@@ -112,7 +99,7 @@ router.post("/", async (req, res) => {
         parsed.firstName = { value: best.text.trim(), confidence: 0.9 };
       }
     } else {
-      console.log("⚠️ No PERSON/FULLNAME entities found.");
+      console.log("⚠️ No PERSON entity found.");
     }
 
     // ORG and TITLE overrides
