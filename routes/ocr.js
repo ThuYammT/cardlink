@@ -30,6 +30,18 @@ function normalizeOCRNoise(text) {
     .trim();
 }
 
+// Heuristic to check if text looks like a human name
+function looksLikeName(str) {
+  const trimmed = str.trim();
+  // Must be 2–3 words, start with capital letters, no digits/punctuation
+  const regex = /^[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}$/;
+  const pass = regex.test(trimmed);
+  if (!pass) {
+    console.log("🚫 Rejected PERSON candidate (not valid name):", trimmed);
+  }
+  return pass;
+}
+
 router.post("/", async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -82,12 +94,16 @@ router.post("/", async (req, res) => {
     // Step 3: merge
     console.log("⚡ Merging NER with regex results...");
 
-    // PERSON detection
-    const personEntities = entities.filter((e) => e.label === "PERSON");
+    // PERSON detection with heuristic
+    let personEntities = entities.filter((e) => e.label === "PERSON");
+    console.log("👤 Raw PERSON entities:", personEntities);
+
+    // Filter by looksLikeName
+    personEntities = personEntities.filter((e) => looksLikeName(e.text));
+    console.log("👤 Filtered PERSON entities:", personEntities);
+
     if (personEntities.length > 0) {
-      const best = personEntities.reduce((a, b) =>
-        b.text.split(/\s+/).length > a.text.split(/\s+/).length ? b : a
-      );
+      const best = personEntities[0]; // take first valid
       parsed.fullName = { value: best.text.trim(), confidence: 0.95 };
       console.log("✅ PERSON chosen:", parsed.fullName.value);
 
@@ -99,7 +115,15 @@ router.post("/", async (req, res) => {
         parsed.firstName = { value: best.text.trim(), confidence: 0.9 };
       }
     } else {
-      console.log("⚠️ No PERSON entity found.");
+      console.log("⚠️ No valid PERSON entity found. Will fallback to regex/email if possible.");
+      // Optional fallback: infer name from email local-part
+      if (parsed.email.value) {
+        const local = parsed.email.value.split("@")[0];
+        if (/^[a-z]+$/i.test(local)) {
+          parsed.firstName = { value: local, confidence: 0.6 };
+          console.log("🔄 Fallback name from email:", parsed.firstName.value);
+        }
+      }
     }
 
     // ORG and TITLE overrides
