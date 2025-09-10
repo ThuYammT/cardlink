@@ -112,28 +112,51 @@ function cleanPersonName(text) {
   return words.join(" ");
 }
 
-  // PERSON
-  const personEntities = entities.filter((e) => e.label === "PERSON");
-  if (personEntities.length > 0) {
-    const best = personEntities.sort((a, b) => b.salience - a.salience)[0];
-    const cleanedName = cleanPersonName(best.text);
-    parsed.fullName = { value: cleanedName, confidence: 0.95 };
-    console.log("✅ PERSON chosen:", parsed.fullName.value);
+  // Helper: check if text looks like a real name
+function isLikelyName(text) {
+  const words = text.trim().split(/\s+/);
+  if (words.length < 2 || words.length > 3) return false;
+  return words.every(w => /^[A-Z][a-z]+$/.test(w));
+}
 
-    const parts = cleanedName.split(/\s+/);
-    if (parts.length >= 2) {
-      parsed.firstName = { value: parts[0], confidence: 0.9 };
-      parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
-    } else {
-      parsed.firstName = { value: cleanedName, confidence: 0.9 };
-    }
+// PERSON
+let personEntities = entities.filter((e) => e.label === "PERSON");
+
+if (personEntities.length > 0) {
+  // Compute scores
+  personEntities = personEntities.map(e => {
+    const cleanedName = cleanPersonName(e.text);
+    return {
+      ...e,
+      cleanedName,
+      nameScore: isLikelyName(cleanedName) ? 1 : 0
+    };
+  });
+
+  // Sort: prefer real names > salience
+  const best = personEntities.sort((a, b) => {
+    if (b.nameScore !== a.nameScore) return b.nameScore - a.nameScore;
+    return b.salience - a.salience;
+  })[0];
+
+  parsed.fullName = { value: best.cleanedName, confidence: 0.95 };
+  console.log("✅ PERSON chosen:", parsed.fullName.value);
+
+  const parts = best.cleanedName.split(/\s+/);
+  if (parts.length >= 2) {
+    parsed.firstName = { value: parts[0], confidence: 0.9 };
+    parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
   } else {
-    console.log("⚠️ No PERSON found, fallback to regex/email.");
-    if (parsed.email.value) {
-      const local = parsed.email.value.split("@")[0];
-      parsed.firstName = { value: local, confidence: 0.6 };
-    }
+    parsed.firstName = { value: best.cleanedName, confidence: 0.9 };
   }
+} else {
+  console.log("⚠️ No PERSON found, fallback to regex/email.");
+  if (parsed.email.value) {
+    const local = parsed.email.value.split("@")[0];
+    parsed.firstName = { value: local, confidence: 0.6 };
+  }
+}
+
 
   // ORG
   const org = entities.find((e) => e.label === "ORGANIZATION");
