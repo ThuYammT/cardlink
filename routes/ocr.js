@@ -3,9 +3,10 @@ const Tesseract = require("tesseract.js");
 const sharp = require("sharp");
 const parseOCRText = require("../utils/parseOCRText");
 const cloudinary = require("cloudinary").v2;
-const runSpaCyNER = require("../utils/ner");
+const { LanguageServiceClient } = require("@google-cloud/language");
 
 const router = express.Router();
+const client = new LanguageServiceClient(); // Google NLP client
 
 cloudinary.config({
   cloud_name: "dwmav1imw",
@@ -30,16 +31,17 @@ function normalizeOCRNoise(text) {
     .trim();
 }
 
-// Heuristic to check if text looks like a human name
-function looksLikeName(str) {
-  const trimmed = str.trim();
-  // Must be 2–3 words, start with capital letters, no digits/punctuation
-  const regex = /^[A-Z][a-z]+(?: [A-Z][a-z]+){0,2}$/;
-  const pass = regex.test(trimmed);
-  if (!pass) {
-    console.log("🚫 Rejected PERSON candidate (not valid name):", trimmed);
-  }
-  return pass;
+// Call Google NLP API
+async function runGoogleNLP(text) {
+  const document = { content: text, type: "PLAIN_TEXT" };
+  const [result] = await client.analyzeEntities({ document });
+  const entities = result.entities.map((ent) => ({
+    text: ent.name,
+    label: ent.type, // PERSON, ORGANIZATION, PHONE_NUMBER, EMAIL, LOCATION
+    salience: ent.salience,
+  }));
+  console.log("🔍 Google NLP entities:", entities);
+  return entities;
 }
 
 router.post("/", async (req, res) => {
@@ -86,24 +88,17 @@ router.post("/", async (req, res) => {
     console.log("📝 Running regex parser...");
     const parsed = parseOCRText(cleaned);
 
-    // Step 2: call spaCy NER
-    console.log("🤖 Calling spaCy NER...");
-    const entities = await runSpaCyNER(cleaned);
-    console.log("🔍 NER entities:", entities);
+    // Step 2: Google NLP
+    console.log("🤖 Calling Google NLP...");
+    const entities = await runGoogleNLP(cleaned);
 
     // Step 3: merge
-    console.log("⚡ Merging NER with regex results...");
+    console.log("⚡ Merging NLP with regex results...");
 
-    // PERSON detection with heuristic
-    let personEntities = entities.filter((e) => e.label === "PERSON");
-    console.log("👤 Raw PERSON entities:", personEntities);
-
-    // Filter by looksLikeName
-    personEntities = personEntities.filter((e) => looksLikeName(e.text));
-    console.log("👤 Filtered PERSON entities:", personEntities);
-
+    // PERSON
+    const personEntities = entities.filter((e) => e.label === "PERSON");
     if (personEntities.length > 0) {
-      const best = personEntities[0]; // take first valid
+      const best = personEntities.sort((a, b) => b.salience - a.salience)[0];
       parsed.fullName = { value: best.text.trim(), confidence: 0.95 };
       console.log("✅ PERSON chosen:", parsed.fullName.value);
 
@@ -115,27 +110,28 @@ router.post("/", async (req, res) => {
         parsed.firstName = { value: best.text.trim(), confidence: 0.9 };
       }
     } else {
-      console.log("⚠️ No valid PERSON entity found. Will fallback to regex/email if possible.");
-      // Optional fallback: infer name from email local-part
-      if (parsed.email.value) {
-        const local = parsed.email.value.split("@")[0];
-        if (/^[a-z]+$/i.test(local)) {
-          parsed.firstName = { value: local, confidence: 0.6 };
-          console.log("🔄 Fallback name from email:", parsed.firstName.value);
-        }
-      }
+      console.log("⚠️ No PERSON found.");
     }
 
-    // ORG and TITLE overrides
-    for (const e of entities) {
-      if (e.label === "ORG") {
-        parsed.company = { value: e.text, confidence: 0.95 };
-        console.log("✅ ORG override:", parsed.company);
-      }
-      if (e.label === "TITLE") {
-        parsed.position = { value: e.text, confidence: 0.9 };
-        console.log("✅ TITLE override:", parsed.position);
-      }
+    // ORG
+    const org = entities.find((e) => e.label === "ORGANIZATION");
+    if (org) {
+      parsed.company = { value: org.text, confidence: 0.95 };
+      console.log("✅ ORG override:", parsed.company);
+    }
+
+    // EMAIL
+    const emailEnt = entities.find((e) => e.label === "EMAIL");
+    if (emailEnt) {
+      parsed.email = { value: emailEnt.text, confidence: 0.95 };
+      console.log("✅ EMAIL override:", parsed.email);
+    }
+
+    // PHONE
+    const phoneEnt = entities.find((e) => e.label === "PHONE_NUMBER");
+    if (phoneEnt) {
+      parsed.phone = { value: phoneEnt.text, confidence: 0.9 };
+      console.log("✅ PHONE override:", parsed.phone);
     }
 
     parsed.cardImageUrl = imageUrl;
