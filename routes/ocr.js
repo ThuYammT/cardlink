@@ -93,46 +93,74 @@ router.post("/", async (req, res) => {
     const entities = await runGoogleNLP(cleaned);
 
     // Step 3: merge
-    console.log("⚡ Merging NLP with regex results...");
+console.log("⚡ Merging NLP with regex results...");
 
-    // PERSON
-    const personEntities = entities.filter((e) => e.label === "PERSON");
-    if (personEntities.length > 0) {
-      const best = personEntities.sort((a, b) => b.salience - a.salience)[0];
-      parsed.fullName = { value: best.text.trim(), confidence: 0.95 };
-      console.log("✅ PERSON chosen:", parsed.fullName.value);
+// Known job title keywords
+const TITLE_WORDS = [
+  "Manager","Executive","Director","Officer","Founder","Chairperson",
+  "President","Professor","Lecturer","Engineer","Consultant","Analyst",
+  "Specialist","Coordinator","Advisor","Assistant","Associate","CEO","CTO","CFO","COO","Dean","Researcher"
+];
 
-      const parts = best.text.trim().split(/\s+/);
-      if (parts.length >= 2) {
-        parsed.firstName = { value: parts[0], confidence: 0.9 };
-        parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
-      } else {
-        parsed.firstName = { value: best.text.trim(), confidence: 0.9 };
-      }
+// Helper: clean PERSON names
+function cleanPersonName(text) {
+  let words = text.trim().split(/\s+/);
+  // Remove title words at the end
+  while (words.length > 1 && TITLE_WORDS.includes(words[words.length - 1])) {
+    words.pop();
+  }
+  return words.join(" ");
+}
+
+  // PERSON
+  const personEntities = entities.filter((e) => e.label === "PERSON");
+  if (personEntities.length > 0) {
+    const best = personEntities.sort((a, b) => b.salience - a.salience)[0];
+    const cleanedName = cleanPersonName(best.text);
+    parsed.fullName = { value: cleanedName, confidence: 0.95 };
+    console.log("✅ PERSON chosen:", parsed.fullName.value);
+
+    const parts = cleanedName.split(/\s+/);
+    if (parts.length >= 2) {
+      parsed.firstName = { value: parts[0], confidence: 0.9 };
+      parsed.lastName = { value: parts.slice(1).join(" "), confidence: 0.9 };
     } else {
-      console.log("⚠️ No PERSON found.");
+      parsed.firstName = { value: cleanedName, confidence: 0.9 };
     }
+  } else {
+    console.log("⚠️ No PERSON found, fallback to regex/email.");
+    if (parsed.email.value) {
+      const local = parsed.email.value.split("@")[0];
+      parsed.firstName = { value: local, confidence: 0.6 };
+    }
+  }
 
-    // ORG
-    const org = entities.find((e) => e.label === "ORGANIZATION");
-    if (org) {
-      parsed.company = { value: org.text, confidence: 0.95 };
-      console.log("✅ ORG override:", parsed.company);
+  // ORG
+  const org = entities.find((e) => e.label === "ORGANIZATION");
+  if (org) {
+    let orgName = org.text.trim();
+    // Trim out extra department/address terms
+    if (orgName.length > 50 || /\b(Campus|Department|School|Road|Rd|Street|Thailand)\b/i.test(orgName)) {
+      const simple = orgName.split(/,|Department|School|Campus/)[0].trim();
+      if (simple.length > 2) orgName = simple;
     }
+    parsed.company = { value: orgName, confidence: 0.95 };
+    console.log("✅ ORG override:", parsed.company);
+  }
 
-    // EMAIL
-    const emailEnt = entities.find((e) => e.label === "EMAIL");
-    if (emailEnt) {
-      parsed.email = { value: emailEnt.text, confidence: 0.95 };
-      console.log("✅ EMAIL override:", parsed.email);
-    }
+  // EMAIL
+  const emailEnt = entities.find((e) => e.label === "EMAIL");
+  if (emailEnt) {
+    parsed.email = { value: emailEnt.text, confidence: 0.95 };
+    console.log("✅ EMAIL override:", parsed.email);
+  }
 
-    // PHONE
-    const phoneEnt = entities.find((e) => e.label === "PHONE_NUMBER");
-    if (phoneEnt) {
-      parsed.phone = { value: phoneEnt.text, confidence: 0.9 };
-      console.log("✅ PHONE override:", parsed.phone);
-    }
+  // PHONE
+  const phoneEnt = entities.find((e) => e.label === "PHONE_NUMBER");
+  if (phoneEnt) {
+    parsed.phone = { value: phoneEnt.text, confidence: 0.9 };
+    console.log("✅ PHONE override:", parsed.phone);
+  }
 
     parsed.cardImageUrl = imageUrl;
 
