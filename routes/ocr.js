@@ -6,6 +6,7 @@ const {
 
 const router = express.Router();
 
+// Load from Render env vars
 const endpoint = process.env.AZURE_DOCUMENT_ENDPOINT;
 const apiKey = process.env.AZURE_DOCUMENT_KEY;
 
@@ -57,9 +58,7 @@ router.post("/", async (req, res) => {
       ...(fields.WorkPhones?.values || []),
       ...(fields.Phones?.values || []),
       ...(fields.OtherPhones?.values || []),
-    ]
-      .map((p) => p.content || "")
-      .filter(Boolean);
+    ].map((p) => p.content || "").filter(Boolean);
 
     const mainPhone = phoneCandidates[0] || "";
     const additionalPhones = phoneCandidates.slice(1).map((p) => ({ value: p }));
@@ -68,7 +67,7 @@ router.post("/", async (req, res) => {
     const parsed = {
       firstName: { value: firstName },
       lastName: { value: lastName },
-      nickname: { value: "" },
+      nickname: { value: "" }, // Azure doesn’t provide this
       position: { value: fields.JobTitles?.values?.[0]?.content || "" },
       phone: { value: mainPhone },
       email: { value: fields.Emails?.values?.[0]?.content || "" },
@@ -79,24 +78,8 @@ router.post("/", async (req, res) => {
       cardImageUrl: imageUrl,
     };
 
-    // ✅ Suggestions with bounding boxes
-    const suggestions = [];
-    for (const [key, field] of Object.entries(fields)) {
-      if (field?.values) {
-        field.values.forEach((val) => {
-          if (val.content) {
-            suggestions.push({
-              type: key,
-              text: val.content,
-              box: val.boundingRegions?.[0]?.polygon || [],
-            });
-          }
-        });
-      }
-    }
-
     console.log("🎯 Final Azure parsed result:", parsed);
-    res.json({ parsed, suggestions });
+    res.json(parsed);
   } catch (err) {
     console.error("❌ Azure OCR error:", err);
     res
