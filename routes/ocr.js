@@ -2,7 +2,6 @@ const express = require("express");
 const {
   DocumentAnalysisClient,
   AzureKeyCredential,
-  KnownDocumentAnalysisApiVersion,
 } = require("@azure/ai-form-recognizer");
 
 const router = express.Router();
@@ -13,8 +12,7 @@ const apiKey = process.env.AZURE_DOCUMENT_KEY;
 
 const client = new DocumentAnalysisClient(
   endpoint,
-  new AzureKeyCredential(apiKey),
-  { apiVersion: KnownDocumentAnalysisApiVersion.V2023_07_31 }
+  new AzureKeyCredential(apiKey)
 );
 
 router.post("/", async (req, res) => {
