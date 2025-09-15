@@ -37,40 +37,49 @@ router.post("/", async (req, res) => {
 
     const fields = documents[0].fields;
 
+    // 🛠️ Debug log all raw fields to see what Azure gave us
+    console.log("📑 Azure raw fields:", JSON.stringify(fields, null, 2));
+
     // Wrap values in { value: ... } so your frontend works without changes
     const parsed = {
       firstName: {
         value:
-          fields["ContactNames"]?.values?.[0]?.properties?.FirstName?.content ||
-          "",
+          fields.ContactNames?.values?.[0]?.properties?.FirstName?.content || "",
       },
       lastName: {
         value:
-          fields["ContactNames"]?.values?.[0]?.properties?.LastName?.content ||
-          "",
+          fields.ContactNames?.values?.[0]?.properties?.LastName?.content || "",
       },
       nickname: { value: "" }, // Azure doesn't provide this
       position: {
-        value: fields["JobTitles"]?.values?.[0]?.content || "",
+        value: fields.JobTitles?.values?.[0]?.content || "",
       },
       phone: {
-        value: fields["Phones"]?.values?.[0]?.content || "",
+        // Try multiple phone sources
+        value:
+          fields.MobilePhones?.values?.[0]?.content ||
+          fields.Phones?.values?.[0]?.content ||
+          "",
       },
       email: {
-        value: fields["Emails"]?.values?.[0]?.content || "",
+        value: fields.Emails?.values?.[0]?.content || "",
       },
       company: {
-        value: fields["CompanyName"]?.content || "",
+        // Fix: CompanyNames (plural, with values array)
+        value: fields.CompanyNames?.values?.[0]?.content || "",
       },
       website: {
-        value: fields["Websites"]?.values?.[0]?.content || "",
+        value: fields.Websites?.values?.[0]?.content || "",
       },
       notes: { value: "" },
-      additionalPhones: Array.isArray(fields["Phones"]?.values)
-        ? fields["Phones"].values
-            .slice(1)
-            .map((p) => ({ value: p.content || "" }))
-        : [],
+      additionalPhones: [
+        ...(fields.MobilePhones?.values?.slice(1).map((p) => ({
+          value: p.content || "",
+        })) || []),
+        ...(fields.OtherPhones?.values?.map((p) => ({
+          value: p.content || "",
+        })) || []),
+      ],
       cardImageUrl: imageUrl,
     };
 
