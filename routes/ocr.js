@@ -24,7 +24,6 @@ router.post("/", async (req, res) => {
 
     console.log("📥 Analyzing business card:", imageUrl);
 
-    // Call Azure prebuilt business card model
     const poller = await client.beginAnalyzeDocumentFromUrl(
       "prebuilt-businessCard",
       imageUrl
@@ -36,50 +35,46 @@ router.post("/", async (req, res) => {
     }
 
     const fields = documents[0].fields;
-
-    // 🛠️ Debug log all raw fields to see what Azure gave us
     console.log("📑 Azure raw fields:", JSON.stringify(fields, null, 2));
 
-    // Wrap values in { value: ... } so your frontend works without changes
+    // ✅ Extract names with fallback
+    let firstName =
+      fields.ContactNames?.values?.[0]?.properties?.FirstName?.content || "";
+    let lastName =
+      fields.ContactNames?.values?.[0]?.properties?.LastName?.content || "";
+
+    if (!firstName && !lastName) {
+      const fullName = fields.ContactNames?.values?.[0]?.content || "";
+      if (fullName) {
+        const parts = fullName.split(" ");
+        firstName = parts[0] || "";
+        lastName = parts.slice(1).join(" ") || "";
+      }
+    }
+
+    // ✅ Collect phones from all sources
+    const phoneCandidates = [
+      ...(fields.MobilePhones?.values || []),
+      ...(fields.WorkPhones?.values || []),
+      ...(fields.Phones?.values || []),
+      ...(fields.OtherPhones?.values || []),
+    ].map((p) => p.content || "").filter(Boolean);
+
+    const mainPhone = phoneCandidates[0] || "";
+    const additionalPhones = phoneCandidates.slice(1).map((p) => ({ value: p }));
+
+    // ✅ Final normalized result
     const parsed = {
-      firstName: {
-        value:
-          fields.ContactNames?.values?.[0]?.properties?.FirstName?.content || "",
-      },
-      lastName: {
-        value:
-          fields.ContactNames?.values?.[0]?.properties?.LastName?.content || "",
-      },
-      nickname: { value: "" }, // Azure doesn't provide this
-      position: {
-        value: fields.JobTitles?.values?.[0]?.content || "",
-      },
-      phone: {
-        // Try multiple phone sources
-        value:
-          fields.MobilePhones?.values?.[0]?.content ||
-          fields.Phones?.values?.[0]?.content ||
-          "",
-      },
-      email: {
-        value: fields.Emails?.values?.[0]?.content || "",
-      },
-      company: {
-        // Fix: CompanyNames (plural, with values array)
-        value: fields.CompanyNames?.values?.[0]?.content || "",
-      },
-      website: {
-        value: fields.Websites?.values?.[0]?.content || "",
-      },
+      firstName: { value: firstName },
+      lastName: { value: lastName },
+      nickname: { value: "" }, // Azure doesn’t provide this
+      position: { value: fields.JobTitles?.values?.[0]?.content || "" },
+      phone: { value: mainPhone },
+      email: { value: fields.Emails?.values?.[0]?.content || "" },
+      company: { value: fields.CompanyNames?.values?.[0]?.content || "" },
+      website: { value: fields.Websites?.values?.[0]?.content || "" },
       notes: { value: "" },
-      additionalPhones: [
-        ...(fields.MobilePhones?.values?.slice(1).map((p) => ({
-          value: p.content || "",
-        })) || []),
-        ...(fields.OtherPhones?.values?.map((p) => ({
-          value: p.content || "",
-        })) || []),
-      ],
+      additionalPhones,
       cardImageUrl: imageUrl,
     };
 
