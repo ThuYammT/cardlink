@@ -28,13 +28,13 @@ router.post("/", async (req, res) => {
       "prebuilt-businessCard",
       imageUrl
     );
-    const { documents } = await poller.pollUntilDone();
+    const result = await poller.pollUntilDone();
 
-    if (!documents.length) {
+    if (!result.documents?.length) {
       return res.status(400).json({ message: "No data extracted" });
     }
 
-    const fields = documents[0].fields;
+    const fields = result.documents[0].fields;
     console.log("📑 Azure raw fields:", JSON.stringify(fields, null, 2));
 
     // ✅ Extract names with fallback
@@ -58,16 +58,20 @@ router.post("/", async (req, res) => {
       ...(fields.WorkPhones?.values || []),
       ...(fields.Phones?.values || []),
       ...(fields.OtherPhones?.values || []),
-    ].map((p) => p.content || "").filter(Boolean);
+    ]
+      .map((p) => p.content || "")
+      .filter(Boolean);
 
     const mainPhone = phoneCandidates[0] || "";
-    const additionalPhones = phoneCandidates.slice(1).map((p) => ({ value: p }));
+    const additionalPhones = phoneCandidates
+      .slice(1)
+      .map((p) => ({ value: p }));
 
     // ✅ Final normalized result
     const parsed = {
       firstName: { value: firstName },
       lastName: { value: lastName },
-      nickname: { value: "" }, // Azure doesn’t provide this
+      nickname: { value: "" },
       position: { value: fields.JobTitles?.values?.[0]?.content || "" },
       phone: { value: mainPhone },
       email: { value: fields.Emails?.values?.[0]?.content || "" },
@@ -78,8 +82,24 @@ router.post("/", async (req, res) => {
       cardImageUrl: imageUrl,
     };
 
+    // ✅ Raw OCR text (before NLP)
+    const rawText = result.content || "";
+    const lines =
+      result.pages?.flatMap((p) =>
+        p.lines.map((line) => ({
+          text: line.content,
+          polygon: line.polygon, // bounding box
+        }))
+      ) || [];
+
     console.log("🎯 Final Azure parsed result:", parsed);
-    res.json(parsed);
+    console.log("📝 Raw OCR text:", rawText);
+
+    res.json({
+      parsed,
+      rawText,
+      lines, // includes polygons → you can draw colored boxes in frontend
+    });
   } catch (err) {
     console.error("❌ Azure OCR error:", err);
     res
