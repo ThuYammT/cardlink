@@ -19,20 +19,19 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-// Create a contact
+// ✅ Create a contact
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const contact = new Contact({ ...req.body, userId: req.userId });
     await contact.save();
     res.status(201).json(contact);
   } catch (err) {
-    console.error("❌ Contact save error:", err);   // 👈 log it
+    console.error("❌ Contact save error:", err);
     res.status(500).json({ message: 'Failed to save contact' });
-    
   }
 });
 
-// Get all contacts for a user
+// ✅ Get all contacts for a user
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const contacts = await Contact.find({ userId: req.userId }).sort({ createdAt: -1 });
@@ -47,7 +46,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const contact = await Contact.findOneAndDelete({
       _id: req.params.id,
-      userId: req.userId, // ensure the contact belongs to the logged-in user
+      userId: req.userId,
     });
 
     if (!contact) {
@@ -60,9 +59,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-module.exports = router;
-
-// Update a contact
+// ✅ Update a contact (full update)
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const contact = await Contact.findOneAndUpdate(
@@ -80,3 +77,24 @@ router.put('/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Failed to update contact' });
   }
 });
+
+// ✅ NEW: Toggle favorite only (partial update)
+router.patch('/:id/favorite', authMiddleware, async (req, res) => {
+  try {
+    const contact = await Contact.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      { $set: { isFavorite: req.body.isFavorite } },
+      { new: true }
+    );
+
+    if (!contact) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+
+    res.json(contact);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update favorite' });
+  }
+});
+
+module.exports = router;
