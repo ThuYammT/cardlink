@@ -127,7 +127,24 @@ router.post('/forgot-password', async (req, res) => {
         email: process.env.EMAIL_USER, // must match verified sender in SendGrid
       },
       subject: 'CardLink Password Reset',
-      text: `You requested a password reset.\n\nClick the link below to set a new password:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
+      text: `You requested a password reset.\n\nIf the link below doesn't open automatically, copy and paste it into your browser:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #111;">
+          <h2 style="color:#213BBB;">CardLink Password Reset</h2>
+          <p>You requested a password reset.</p>
+          <p>
+            <a href="${resetUrl}" 
+              style="display:inline-block; padding:10px 16px; background-color:#213BBB; color:white; text-decoration:none; border-radius:6px;">
+              Open in CardLink App
+            </a>
+          </p>
+          <p>If the button doesn't work, copy and paste this into your browser:<br/>
+          <code>${resetUrl}</code></p>
+          <p style="margin-top:20px; font-size:12px; color:#555;">
+            If you did not request this, please ignore this email.
+          </p>
+        </div>
+      `,
     };
 
     console.log('📤 Sending email via SendGrid HTTPS API...');
