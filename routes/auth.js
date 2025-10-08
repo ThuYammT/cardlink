@@ -140,34 +140,22 @@ router.patch("/update-account", async (req, res) => {
 
     const { email, phone, currentPassword, newPassword } = req.body;
 
-    // Require current password for sensitive updates
+    console.log("🧩 Incoming update-account:", req.body);
+
+    // If changing password or email, verify current password
     if ((email && email !== user.email) || newPassword) {
-      if (!currentPassword)
-        return res.status(400).json({ message: "Current password required" });
+      if (!currentPassword || currentPassword.trim() === "") {
+        return res.status(400).json({ message: "Please enter your current password" });
+      }
 
       const isMatch = await bcrypt.compare(currentPassword, user.password);
-      if (!isMatch)
+      if (!isMatch) {
+        console.log("❌ Password mismatch:", currentPassword, user.password);
         return res.status(400).json({ message: "Incorrect current password" });
+      }
     }
 
-    // 🔹 Handle email change
-    if (email && email !== user.email) {
-      const existing = await User.findOne({ email });
-      if (existing)
-        return res.status(400).json({ message: "Email already in use" });
-
-      user.email = email;
-      await user.save();
-
-      // Force re-login
-      return res.json({
-        message:
-          "Email updated successfully. Please log in again with your new email.",
-        forceLogout: true,
-      });
-    }
-
-    // 🔹 Handle password change (✅ hash before saving)
+    // ✅ Handle password change
     if (newPassword) {
       const hashed = await bcrypt.hash(newPassword, 10);
       user.password = hashed;
@@ -179,7 +167,22 @@ router.patch("/update-account", async (req, res) => {
       });
     }
 
-    // 🔹 Handle phone number (no password required)
+    // ✅ Handle email change
+    if (email && email !== user.email) {
+      const existing = await User.findOne({ email });
+      if (existing)
+        return res.status(400).json({ message: "Email already in use" });
+
+      user.email = email;
+      await user.save();
+
+      return res.json({
+        message: "Email updated successfully. Please log in again.",
+        forceLogout: true,
+      });
+    }
+
+    // ✅ Handle phone
     if (phone) user.phone = phone;
 
     await user.save();
@@ -189,6 +192,7 @@ router.patch("/update-account", async (req, res) => {
     res.status(401).json({ message: "Invalid or expired token" });
   }
 });
+
 /* =====================================================
    🔹 FORGOT PASSWORD / RESET PASSWORD
 ===================================================== */
