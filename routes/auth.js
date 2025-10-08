@@ -1,58 +1,68 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const User = require("../models/User");
 const crypto = require("crypto");
-const sgMail = require("@sendgrid/mail"); // ✅ SendGrid API
-const router = express.Router();
+const sgMail = require("@sendgrid/mail");
+const User = require("../models/User");
 
+const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 
-/* ===============================
-   SIGN UP
-================================ */
+/* =====================================================
+   🔹 SIGN UP
+===================================================== */
 router.post("/signup", async (req, res) => {
   const { email, password } = req.body;
   try {
     const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ message: "Email already exists" });
+    if (existing)
+      return res.status(400).json({ message: "Email already exists" });
 
     const hashed = await bcrypt.hash(password, 10);
     const user = new User({ email, password: hashed });
     await user.save();
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
     res.status(201).json({ token });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-/* ===============================
-   LOGIN
-================================ */
+/* =====================================================
+   🔹 LOGIN
+===================================================== */
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    if (!user)
+      return res.status(400).json({ message: "Invalid credentials" });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+    if (!isMatch)
+      return res.status(400).json({ message: "Invalid credentials" });
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
     res.json({ token });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-/* ===============================
-   GET /me - Return current user
-================================ */
+/* =====================================================
+   🔹 GET /me — return current user profile
+===================================================== */
 router.get("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: "Missing token" });
+  if (!authHeader)
+    return res.status(401).json({ message: "Missing token" });
 
   const token = authHeader.split(" ")[1];
   try {
@@ -66,15 +76,15 @@ router.get("/me", async (req, res) => {
   }
 });
 
-/* ===============================
-   PATCH /me - Update profile or email
-================================ */
+/* =====================================================
+   🔹 PATCH /me — update name/avatar/email (basic profile)
+===================================================== */
 router.patch("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: "Missing token" });
+  if (!authHeader)
+    return res.status(401).json({ message: "Missing token" });
 
   const token = authHeader.split(" ")[1];
-
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.userId);
@@ -82,12 +92,14 @@ router.patch("/me", async (req, res) => {
 
     const { name, avatar, email, currentPassword } = req.body;
 
-    // ✅ Require password verification for email change
+    // Require password to change email
     if (email && email !== user.email) {
       if (!currentPassword)
-        return res.status(400).json({ message: "Password required to change email" });
+        return res
+          .status(400)
+          .json({ message: "Password required to change email" });
 
-      const valid = await bcrypt.compare(currentPassword, user.password);
+    const valid = await bcrypt.compare(currentPassword, user.password);
       if (!valid)
         return res.status(400).json({ message: "Incorrect password" });
 
@@ -109,30 +121,70 @@ router.patch("/me", async (req, res) => {
   }
 });
 
-/* ===============================
-   FORGOT PASSWORD + RESET PASSWORD
-================================ */
+/* =====================================================
+   🔹 PATCH /update-account — email/phone/password changes
+===================================================== */
+router.patch("/update-account", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader)
+    return res.status(401).json({ message: "Missing token" });
 
-// === Step 1: Forgot Password (SendGrid HTTPS API)
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const { email, phone, currentPassword, newPassword } = req.body;
+
+    // Verify password if trying to change sensitive data
+    if ((email && email !== user.email) || newPassword) {
+      if (!currentPassword)
+        return res
+          .status(400)
+          .json({ message: "Current password required" });
+
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch)
+        return res.status(400).json({ message: "Incorrect password" });
+    }
+
+    if (email && email !== user.email) {
+      const existing = await User.findOne({ email });
+      if (existing)
+        return res.status(400).json({ message: "Email already in use" });
+      user.email = email;
+    }
+
+    if (phone) user.phone = phone;
+    if (newPassword) user.password = newPassword;
+
+    await user.save();
+    res.json({ message: "Account updated successfully" });
+  } catch (err) {
+    console.error("❌ Account update error:", err);
+    res.status(401).json({ message: "Invalid or expired token" });
+  }
+});
+
+/* =====================================================
+   🔹 FORGOT PASSWORD / RESET PASSWORD
+===================================================== */
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
-  console.log("🔹 Incoming forgot-password request for:", email);
+  console.log("🔹 Incoming forgot-password for:", email);
 
   try {
     const user = await User.findOne({ email });
-    if (!user) {
-      console.log("❌ User not found:", email);
+    if (!user)
       return res.status(404).json({ message: "User not found" });
-    }
 
     const resetToken = crypto.randomBytes(32).toString("hex");
     user.resetToken = resetToken;
-    user.resetTokenExpiry = Date.now() + 3600000; // 1 hour
+    user.resetTokenExpiry = Date.now() + 3600000; // 1h
     await user.save();
 
     const resetUrl = `cardlink://reset-password?token=${resetToken}`;
-    console.log("🔗 Reset link:", resetUrl);
-
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
     const msg = {
@@ -142,49 +194,31 @@ router.post("/forgot-password", async (req, res) => {
         email: process.env.EMAIL_USER,
       },
       subject: "CardLink Password Reset",
-      text: `You requested a password reset.\n\nIf the link below doesn't open automatically, copy and paste it into your browser:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
       html: `
         <div style="font-family: Arial, sans-serif; color: #111;">
           <h2 style="color:#213BBB;">CardLink Password Reset</h2>
           <p>You requested a password reset.</p>
           <p>
-            <a href="cardlink://reset-password?token=${resetToken}" 
-              style="display:inline-block;
-                     padding:12px 20px;
-                     background-color:#213BBB;
-                     color:white;
-                     font-weight:bold;
-                     text-decoration:none;
-                     border-radius:6px;">
-              Open in CardLink App
-            </a>
+            <a href="${resetUrl}" style="display:inline-block;
+              padding:12px 20px;background-color:#213BBB;
+              color:white;font-weight:bold;text-decoration:none;
+              border-radius:6px;">Open in CardLink App</a>
           </p>
-          <p>If the button doesn't work, click or copy this link below:</p>
-          <p>
-            <a href="cardlink://reset-password?token=${resetToken}" 
-               style="color:#213BBB; text-decoration:underline;">
-               cardlink://reset-password?token=${resetToken}
-            </a>
-          </p>
-          <p style="margin-top:20px; font-size:12px; color:#555;">
-            If you did not request this, please ignore this email.
-          </p>
+          <p>If the button doesn't work, copy this link:</p>
+          <p><a href="${resetUrl}" style="color:#213BBB;">${resetUrl}</a></p>
         </div>
       `,
     };
 
-    console.log("📤 Sending email via SendGrid HTTPS API...");
     await sgMail.send(msg);
-    console.log("✅ Email sent successfully to:", user.email);
-
+    console.log("✅ Reset email sent to:", user.email);
     res.json({ message: "Password reset link sent to your email." });
   } catch (err) {
-    console.error("❌ Error during forgot-password:", err);
+    console.error("❌ Forgot-password error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// === Step 2: Reset Password
 router.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -193,7 +227,8 @@ router.post("/reset-password", async (req, res) => {
       resetToken: token,
       resetTokenExpiry: { $gt: Date.now() },
     });
-    if (!user) return res.status(400).json({ message: "Invalid or expired token" });
+    if (!user)
+      return res.status(400).json({ message: "Invalid or expired token" });
 
     user.password = await bcrypt.hash(newPassword, 10);
     user.resetToken = undefined;
