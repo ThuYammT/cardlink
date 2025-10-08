@@ -99,7 +99,7 @@ router.patch("/me", async (req, res) => {
           .status(400)
           .json({ message: "Password required to change email" });
 
-    const valid = await bcrypt.compare(currentPassword, user.password);
+      const valid = await bcrypt.compare(currentPassword, user.password);
       if (!valid)
         return res.status(400).json({ message: "Incorrect password" });
 
@@ -137,27 +137,46 @@ router.patch("/update-account", async (req, res) => {
 
     const { email, phone, currentPassword, newPassword } = req.body;
 
-    // Verify password if trying to change sensitive data
+    // Require current password for sensitive updates
     if ((email && email !== user.email) || newPassword) {
       if (!currentPassword)
-        return res
-          .status(400)
-          .json({ message: "Current password required" });
+        return res.status(400).json({ message: "Current password required" });
 
       const isMatch = await bcrypt.compare(currentPassword, user.password);
       if (!isMatch)
-        return res.status(400).json({ message: "Incorrect password" });
+        return res.status(400).json({ message: "Incorrect current password" });
     }
 
+    // 🔹 Handle email change
     if (email && email !== user.email) {
       const existing = await User.findOne({ email });
       if (existing)
         return res.status(400).json({ message: "Email already in use" });
+
       user.email = email;
+      await user.save();
+
+      // Force re-login for security
+      return res.json({
+        message:
+          "Email updated successfully. Please log in again with your new email.",
+        forceLogout: true,
+      });
     }
 
+    // 🔹 Handle password change
+    if (newPassword) {
+      user.password = await bcrypt.hash(newPassword, 10);
+      await user.save();
+
+      return res.json({
+        message: "Password updated successfully. Please log in again.",
+        forceLogout: true,
+      });
+    }
+
+    // 🔹 Handle phone number (no password required)
     if (phone) user.phone = phone;
-    if (newPassword) user.password = newPassword;
 
     await user.save();
     res.json({ message: "Account updated successfully" });
