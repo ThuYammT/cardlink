@@ -90,23 +90,31 @@ router.patch('/me', async (req, res) => {
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
-/* === Step 1: Forgot Password === */
+/* === Step 1: Forgot Password (with debug logs) === */
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
+  console.log("🔹 Incoming forgot-password request for:", email);
+
   try {
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      console.log("❌ User not found:", email);
+      return res.status(404).json({ message: "User not found" });
+    }
 
     // Generate secure reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
     user.resetToken = resetToken;
     user.resetTokenExpiry = Date.now() + 3600000; // valid for 1 hour
     await user.save();
+    console.log("✅ Token generated and saved for user:", user.email);
 
-    // Reset URL (you can adjust this later to match your frontend route)
+    // Reset URL
     const resetUrl = `https://cardlink.onrender.com/reset-password/${resetToken}`;
+    console.log("🔗 Reset link:", resetUrl);
 
-    // Setup email transport (Gmail or any SMTP)
+    // Setup email transport
+    console.log("📨 Setting up Nodemailer transporter...");
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
@@ -115,19 +123,22 @@ router.post("/forgot-password", async (req, res) => {
       },
     });
 
+    console.log("📤 Attempting to send email...");
     await transporter.sendMail({
       from: `"CardLink Support" <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: "CardLink Password Reset",
-      text: `You requested a password reset. Click below to set a new password:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
+      text: `You requested a password reset.\n\nClick the link below to set a new password:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
     });
 
+    console.log("✅ Email sent successfully to:", user.email);
     res.json({ message: "Password reset link sent to your email." });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error during forgot-password:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 /* === Step 2: Reset Password === */
 router.post("/reset-password", async (req, res) => {
