@@ -114,7 +114,7 @@ router.post('/forgot-password', async (req, res) => {
     user.resetTokenExpiry = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    const resetUrl = `https://cardlink.onrender.com/reset-password/${resetToken}`;
+    const resetUrl = `cardlink://reset-password?token=${resetToken}`;
     console.log('🔗 Reset link:', resetUrl);
 
     // ✅ Configure SendGrid
