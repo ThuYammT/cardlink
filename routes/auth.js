@@ -124,6 +124,9 @@ router.patch("/me", async (req, res) => {
 /* =====================================================
    🔹 PATCH /update-account — email/phone/password changes
 ===================================================== */
+/* =====================================================
+   🔹 PATCH /update-account — email/phone/password changes
+===================================================== */
 router.patch("/update-account", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader)
@@ -156,7 +159,7 @@ router.patch("/update-account", async (req, res) => {
       user.email = email;
       await user.save();
 
-      // Force re-login for security
+      // Force re-login
       return res.json({
         message:
           "Email updated successfully. Please log in again with your new email.",
@@ -164,9 +167,10 @@ router.patch("/update-account", async (req, res) => {
       });
     }
 
-    // 🔹 Handle password change
+    // 🔹 Handle password change (✅ hash before saving)
     if (newPassword) {
-      user.password = await bcrypt.hash(newPassword, 10);
+      const hashed = await bcrypt.hash(newPassword, 10);
+      user.password = hashed;
       await user.save();
 
       return res.json({
@@ -185,7 +189,6 @@ router.patch("/update-account", async (req, res) => {
     res.status(401).json({ message: "Invalid or expired token" });
   }
 });
-
 /* =====================================================
    🔹 FORGOT PASSWORD / RESET PASSWORD
 ===================================================== */
