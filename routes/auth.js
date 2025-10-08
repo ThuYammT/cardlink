@@ -84,6 +84,75 @@ router.patch('/me', async (req, res) => {
   }
 
 });
+// ===============================
+// Forgot Password + Reset Password
+// ===============================
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
+
+/* === Step 1: Forgot Password === */
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Generate secure reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = Date.now() + 3600000; // valid for 1 hour
+    await user.save();
+
+    // Reset URL (you can adjust this later to match your frontend route)
+    const resetUrl = `https://cardlink.onrender.com/reset-password/${resetToken}`;
+
+    // Setup email transport (Gmail or any SMTP)
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"CardLink Support" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "CardLink Password Reset",
+      text: `You requested a password reset. Click below to set a new password:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
+    });
+
+    res.json({ message: "Password reset link sent to your email." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* === Step 2: Reset Password === */
+router.post("/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  try {
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() }, // ensure still valid
+    });
+    if (!user) return res.status(400).json({ message: "Invalid or expired token" });
+
+    // Update password
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+
+    res.json({ message: "Password has been reset successfully." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 
 
 module.exports = router;
