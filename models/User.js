@@ -14,13 +14,6 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true } // 🕒 adds createdAt and updatedAt
 );
 
-// 🔒 Hash password automatically before saving
-UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
-});
-
 // 🔐 Password comparison helper
 UserSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);

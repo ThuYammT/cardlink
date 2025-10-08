@@ -1,3 +1,4 @@
+// routes/auth.js
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -27,7 +28,7 @@ router.post("/signup", async (req, res) => {
     });
     res.status(201).json({ token });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Signup error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -51,13 +52,13 @@ router.post("/login", async (req, res) => {
     });
     res.json({ token });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Login error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
 /* =====================================================
-   🔹 GET /me — return current user profile
+   🔹 GET /me
 ===================================================== */
 router.get("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -69,15 +70,15 @@ router.get("/me", async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.userId).select("-password");
     if (!user) return res.status(404).json({ message: "User not found" });
-
     res.json(user);
   } catch (err) {
+    console.error("❌ /me error:", err);
     res.status(401).json({ message: "Invalid or expired token" });
   }
 });
 
 /* =====================================================
-   🔹 PATCH /me — update name/avatar/email (basic profile)
+   🔹 PATCH /me — update name/avatar/email
 ===================================================== */
 router.patch("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -92,7 +93,6 @@ router.patch("/me", async (req, res) => {
 
     const { name, avatar, email, currentPassword } = req.body;
 
-    // Require password to change email
     if (email && email !== user.email) {
       if (!currentPassword)
         return res
@@ -122,10 +122,7 @@ router.patch("/me", async (req, res) => {
 });
 
 /* =====================================================
-   🔹 PATCH /update-account — email/phone/password changes
-===================================================== */
-/* =====================================================
-   🔹 PATCH /update-account — email/phone/password changes
+   🔹 PATCH /update-account — email/phone/password
 ===================================================== */
 router.patch("/update-account", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -140,26 +137,21 @@ router.patch("/update-account", async (req, res) => {
 
     const { email, phone, currentPassword, newPassword } = req.body;
 
-    console.log("🧩 Incoming update-account:", req.body);
-
-    // If changing password or email, verify current password
+    // 🔐 Require password verification for sensitive changes
     if ((email && email !== user.email) || newPassword) {
-      if (!currentPassword || currentPassword.trim() === "") {
+      if (!currentPassword)
         return res.status(400).json({ message: "Please enter your current password" });
-      }
 
       const isMatch = await bcrypt.compare(currentPassword, user.password);
-      if (!isMatch) {
-        console.log("❌ Password mismatch:", currentPassword, user.password);
+      if (!isMatch)
         return res.status(400).json({ message: "Incorrect current password" });
-      }
     }
 
-    // ✅ Handle password change
+    // ✅ Password change
     if (newPassword) {
-    user.password = newPassword; // let schema pre-save hook hash it
-    await user.save();
-
+      const hashed = await bcrypt.hash(newPassword, 10);
+      user.password = hashed;
+      await user.save();
 
       return res.json({
         message: "Password updated successfully. Please log in again.",
@@ -167,7 +159,7 @@ router.patch("/update-account", async (req, res) => {
       });
     }
 
-    // ✅ Handle email change
+    // ✅ Email change
     if (email && email !== user.email) {
       const existing = await User.findOne({ email });
       if (existing)
@@ -182,7 +174,7 @@ router.patch("/update-account", async (req, res) => {
       });
     }
 
-    // ✅ Handle phone
+    // ✅ Phone update
     if (phone) user.phone = phone;
 
     await user.save();
@@ -245,6 +237,9 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
+/* =====================================================
+   🔹 RESET PASSWORD
+===================================================== */
 router.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -263,7 +258,7 @@ router.post("/reset-password", async (req, res) => {
 
     res.json({ message: "Password has been reset successfully." });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Reset-password error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
