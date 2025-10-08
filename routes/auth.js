@@ -157,9 +157,9 @@ router.patch("/update-account", async (req, res) => {
 
     // ✅ Handle password change
     if (newPassword) {
-      const hashed = await bcrypt.hash(newPassword, 10);
-      user.password = hashed;
-      await user.save();
+    user.password = newPassword; // let schema pre-save hook hash it
+    await user.save();
+
 
       return res.json({
         message: "Password updated successfully. Please log in again.",
