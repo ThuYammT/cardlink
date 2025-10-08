@@ -90,7 +90,7 @@ router.patch('/me', async (req, res) => {
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
-/* === Step 1: Forgot Password (with debug logs) === */
+/* === Step 1: Forgot Password (SendGrid version) === */
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
   console.log("🔹 Incoming forgot-password request for:", email);
@@ -102,33 +102,30 @@ router.post("/forgot-password", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Generate secure reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
     user.resetToken = resetToken;
-    user.resetTokenExpiry = Date.now() + 3600000; // valid for 1 hour
+    user.resetTokenExpiry = Date.now() + 3600000;
     await user.save();
-    console.log("✅ Token generated and saved for user:", user.email);
 
-    // Reset URL
     const resetUrl = `https://cardlink.onrender.com/reset-password/${resetToken}`;
     console.log("🔗 Reset link:", resetUrl);
 
-    // Setup email transport
-    console.log("📨 Setting up Nodemailer transporter...");
+    // ✨ SendGrid Transporter
     const transporter = nodemailer.createTransport({
-      service: "Gmail",
+      host: "smtp.sendgrid.net",
+      port: 587,
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: "apikey", // literally the word "apikey"
+        pass: process.env.SENDGRID_API_KEY,
       },
     });
 
-    console.log("📤 Attempting to send email...");
+    console.log("📤 Sending email via SendGrid...");
     await transporter.sendMail({
       from: `"CardLink Support" <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: "CardLink Password Reset",
-      text: `You requested a password reset.\n\nClick the link below to set a new password:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
+      text: `You requested a password reset.\n\nClick below to set a new password:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
     });
 
     console.log("✅ Email sent successfully to:", user.email);
