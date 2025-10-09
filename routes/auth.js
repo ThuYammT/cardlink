@@ -202,7 +202,8 @@ router.post("/forgot-password", async (req, res) => {
     user.resetTokenExpiry = Date.now() + 3600000; // 1h
     await user.save();
 
-    const resetUrl = `cardlink://reset-password?token=${resetToken}`;
+    // ✅ Make Gmail-friendly clickable link
+    const resetUrl = `https://cardlink.onrender.com/open-reset?token=${resetToken}`;
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
     const msg = {
@@ -261,6 +262,16 @@ router.post("/reset-password", async (req, res) => {
     console.error("❌ Reset-password error:", err);
     res.status(500).json({ message: "Server error" });
   }
+});
+
+/* =====================================================
+   🔹 Deep Link Redirect (NEW)
+===================================================== */
+router.get("/open-reset", (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).send("Missing token");
+  const deepLink = `cardlink://reset-password?token=${token}`;
+  res.redirect(deepLink);
 });
 
 module.exports = router;
